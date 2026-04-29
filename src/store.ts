@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { mkdirSync, appendFileSync } from "node:fs";
+import { mkdirSync, appendFileSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { SwarmEvent } from "./schema.js";
 
@@ -103,6 +103,16 @@ export class SwarmStore {
     return this.db
       .prepare(`SELECT id, goal, status, created_at, updated_at FROM runs WHERE id = ?`)
       .get(id) as RunRow | undefined;
+  }
+
+  listRuns(): RunRow[] {
+    return this.db
+      .prepare(
+        `SELECT id, goal, status, created_at, updated_at
+         FROM runs
+         ORDER BY updated_at DESC, created_at DESC`,
+      )
+      .all() as RunRow[];
   }
 
   insertTask(runId: string, t: {
@@ -238,6 +248,22 @@ export class SwarmStore {
          ORDER BY claimed_at ASC, task_id ASC, kind ASC, path ASC`,
       )
       .all(runId) as ClaimRow[];
+  }
+
+  /** Sum all costUsd from events for a run (used for budget enforcement on resume). */
+  sumRunCost(runId: string): number {
+    let total = 0;
+    try {
+      const raw = readFileSync(this.jsonlPath, "utf8");
+      for (const line of raw.split(/\r?\n/)) {
+        if (!line.trim()) continue;
+        try {
+          const e = JSON.parse(line) as { run_id?: string; type?: string; payload?: { costUsd?: number } };
+          if (e.run_id === runId && typeof e.payload?.costUsd === "number") total += e.payload.costUsd;
+        } catch { /* skip */ }
+      }
+    } catch { /* file not found — fresh run */ }
+    return total;
   }
 
   releaseStaleClaims(runId: string, olderThanIso: string): ClaimRow[] {

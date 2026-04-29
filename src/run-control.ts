@@ -43,11 +43,13 @@ export async function executeRun(
     store.setRunStatus(runId, "running");
     const summary = await dispatcher.run(runId);
     store.setRunStatus(runId, summary.failed > 0 || summary.blocked > 0 ? "incomplete" : "done");
+    // Aggregate total cost from event log for the RunCompleted event.
+    const totalCostUsd = store.sumRunCost(runId);
     store.appendEvent({
       run_id: runId,
       type: "RunCompleted",
       ts: new Date().toISOString(),
-      payload: { ...summary, resumed: opts.resumed === true },
+      payload: { ...summary, totalCostUsd, resumed: opts.resumed === true },
     });
     return { summary, recoveredRunning };
   } finally {

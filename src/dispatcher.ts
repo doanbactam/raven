@@ -19,6 +19,8 @@ export interface DispatcherDeps {
 }
 
 export class Dispatcher {
+  private cumulativeCostUsd = 0;
+
   constructor(private deps: DispatcherDeps) {}
 
   /**
@@ -27,18 +29,39 @@ export class Dispatcher {
    * 2. Cố gắng claim ownership; nếu fail vì conflict → giữ pending, thử wave sau.
    * 3. Spawn worker song song (giới hạn parallelism).
    * 4. Lặp đến khi không còn task pending hoặc không có progress (deadlock).
+   * 5. Kiểm tra budget trước mỗi wave; dừng nếu vượt `budget_usd`.
    */
-  async run(runId: string): Promise<{ done: number; failed: number; blocked: number }> {
+  async run(runId: string): Promise<{ done: number; failed: number; blocked: number; budgetExceeded: boolean }> {
     const { store, cfg } = this.deps;
     const queue = new PQueue({ concurrency: cfg.parallelism });
     let done = 0;
     let failed = 0;
+    let budgetExceeded = false;
+
+    // Seed cumulative cost from planner's PlanCreated event.
+    this.cumulativeCostUsd = this.loadExistingCost(store, runId);
 
     while (true) {
       this.releaseStaleClaims(runId);
       const all = store.listTasks(runId);
       const remaining = all.filter((t) => t.status === "pending");
       if (remaining.length === 0) break;
+
+      // Budget gate: stop spawning if over limit.
+      if (this.cumulativeCostUsd >= cfg.budget_usd) {
+        budgetExceeded = true;
+        store.appendEvent({
+          run_id: runId,
+          type: "ArbitrationRequested",
+          ts: new Date().toISOString(),
+          payload: {
+            reason: "budget_exceeded",
+            cumulativeCostUsd: this.cumulativeCostUsd,
+            budgetUsd: cfg.budget_usd,
+          },
+        });
+        break;
+      }
 
       const ready = remaining.filter((t) =>
         t.depends_on.every((dep) => all.find((x) => x.id === dep)?.status === "done"),
@@ -47,6 +70,21 @@ export class Dispatcher {
 
       const claimed: typeof ready = [];
       for (const t of ready) {
+        // Check budget before each individual claim to avoid over-dispatching.
+        if (this.cumulativeCostUsd >= cfg.budget_usd) {
+          budgetExceeded = true;
+          store.appendEvent({
+            run_id: runId,
+            type: "ArbitrationRequested",
+            ts: new Date().toISOString(),
+            payload: {
+              reason: "budget_exceeded",
+              cumulativeCostUsd: this.cumulativeCostUsd,
+              budgetUsd: cfg.budget_usd,
+            },
+          });
+          break;
+        }
         const ok = store.tryClaim(runId, t.id, t.owned_files, t.owned_symbols);
         if (ok) {
           claimed.push(t);
@@ -79,7 +117,13 @@ export class Dispatcher {
         all.filter((t) => t.status === "failed" || t.status === "needs_arbitration").length,
       ),
       blocked,
+      budgetExceeded,
     };
+  }
+
+  /** Load cost already recorded in the event log so budget enforcement is accurate on resume. */
+  private loadExistingCost(store: SwarmStore, _runId: string): number {
+    return store.sumRunCost(_runId);
   }
 
   private releaseStaleClaims(runId: string): void {
@@ -145,6 +189,7 @@ export class Dispatcher {
       if (model) runOptions.model = model;
       const res = await runner.run(runOptions);
       lastCostUsd = res.costUsd;
+      if (typeof res.costUsd === "number") this.cumulativeCostUsd += res.costUsd;
       if (res.sessionId && res.sessionId !== sessionId) {
         store.setTaskSessionId(runId, t.id, res.sessionId);
       }
@@ -242,6 +287,7 @@ export class Dispatcher {
       });
       return true;
     } catch (err) {
+      if (typeof lastCostUsd === "number") this.cumulativeCostUsd += lastCostUsd;
       store.setTaskStatus(runId, t.id, "failed");
       store.appendEvent({
         run_id: runId,

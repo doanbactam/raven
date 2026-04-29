@@ -79,8 +79,13 @@ function eventDetail(ev: SwarmEvent): string {
         .filter(Boolean)
         .join(" ");
     case "RunCompleted":
-      return ["done", "failed", "blocked"]
-        .map((k) => (typeof ev.payload[k] === "number" ? `${k}=${ev.payload[k]}` : ""))
+      return [
+        ...(["done", "failed", "blocked"] as const)
+          .map((k) => (typeof ev.payload[k] === "number" ? `${k}=${ev.payload[k]}` : "")),
+        typeof ev.payload.totalCostUsd === "number" ? `total_cost=$${ev.payload.totalCostUsd.toFixed(4)}` : "",
+        ev.payload.budgetExceeded === true ? "BUDGET_EXCEEDED" : "",
+        ev.payload.resumed === true ? "resumed" : "",
+      ]
         .filter(Boolean)
         .join(" ");
     case "TaskFailed":
