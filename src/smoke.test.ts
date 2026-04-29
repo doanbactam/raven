@@ -235,6 +235,15 @@ describe("scope boundary", () => {
     const r = checkOwnedFileScope(["src\\a.ts"], ["src/a.ts"]);
     expect(r.passed).toBe(true);
   });
+
+  it("treats globstar slash as zero or more directories", async () => {
+    const { checkOwnedFileScope } = await import("./scope.js");
+    const r = checkOwnedFileScope(
+      ["tests/arrays.test.js", "tests/unit/strings.test.js"],
+      ["tests/**/*.test.js"],
+    );
+    expect(r.passed).toBe(true);
+  });
 });
 
 describe("worktree changed files", () => {

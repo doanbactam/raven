@@ -107,7 +107,14 @@ export class ClaudeRunner {
       if (parsed.costUsd !== undefined) out.costUsd = parsed.costUsd;
       if (parsed.sessionId !== undefined) out.sessionId = parsed.sessionId;
       if (parsed.hookEvents.length > 0) out.hookEvents = parsed.hookEvents;
-      if (out.exitCode === 0 || !isTransientClaudeError(out) || attempt === maxRetries) return out;
+      // Only check stderr (not stdout which contains Claude CLI's own internal 429 retry logs).
+      // Also skip retry if the process timed out — retrying a timeout just wastes more time.
+      if (
+        out.exitCode === 0 ||
+        result.timedOut ||
+        !isTransientClaudeError({ stdout: "", stderr }) ||
+        attempt === maxRetries
+      ) return out;
       await sleep(opts.retryDelayMs ?? 5000);
     }
     return out!;

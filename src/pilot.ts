@@ -76,8 +76,9 @@ function computeSuiteMetrics(results: EvalRunResult[]): SuiteMetrics {
   const baseline = results.filter((r) => r.mode === "baseline");
   const swarm = results.filter((r) => r.mode === "swarm");
 
-  const baselinePass = baseline.filter((r) => modeSucceeded(r) && (r.verifyExit === 0 || r.verifyExit === -1));
-  const swarmPass = swarm.filter((r) => modeSucceeded(r) && (r.verifyExit === 0 || r.verifyExit === -1));
+  // Only count verified passes. verifyExit===-1 means no verify_cmd — unverified, not pass.
+  const baselinePass = baseline.filter((r) => modeSucceeded(r) && r.verifyExit === 0);
+  const swarmPass = swarm.filter((r) => modeSucceeded(r) && r.verifyExit === 0);
 
   const baselinePassRate = baseline.length > 0 ? baselinePass.length / baseline.length : 0;
   const swarmPassRate = swarm.length > 0 ? swarmPass.length / swarm.length : 0;
@@ -116,8 +117,8 @@ function computeGlobalMetrics(suites: SuiteReport[]): GlobalMetrics {
   const baseline = allResults.filter((r) => r.mode === "baseline");
   const swarm = allResults.filter((r) => r.mode === "swarm");
 
-  const baselinePass = baseline.filter((r) => modeSucceeded(r) && (r.verifyExit === 0 || r.verifyExit === -1));
-  const swarmPass = swarm.filter((r) => modeSucceeded(r) && (r.verifyExit === 0 || r.verifyExit === -1));
+  const baselinePass = baseline.filter((r) => modeSucceeded(r) && r.verifyExit === 0);
+  const swarmPass = swarm.filter((r) => modeSucceeded(r) && r.verifyExit === 0);
 
   const baselinePassRate = baseline.length > 0 ? baselinePass.length / baseline.length : 0;
   const swarmPassRate = swarm.length > 0 ? swarmPass.length / swarm.length : 0;

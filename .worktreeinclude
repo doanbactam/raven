@@ -1,0 +1,4 @@
+# Files outside .gitignore that should still be copied into per-task worktrees.
+# Add paths your workers genuinely need (e.g. local-only dotfiles for tests).
+# Example:
+# .env.test

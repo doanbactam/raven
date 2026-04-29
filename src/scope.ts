@@ -33,8 +33,32 @@ function normalizePath(path: string): string {
 }
 
 function globToRegExp(pattern: string): RegExp {
-  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^/]*");
-  return new RegExp(`^${escaped}$`);
+  let regex = "";
+  for (let i = 0; i < pattern.length;) {
+    const char = pattern[i];
+    const next = pattern[i + 1];
+    const afterNext = pattern[i + 2];
+    if (char === "*" && next === "*") {
+      if (afterNext === "/") {
+        regex += "(?:.*/)?";
+        i += 3;
+      } else {
+        regex += ".*";
+        i += 2;
+      }
+    } else if (char === "*") {
+      regex += "[^/]*";
+      i++;
+    } else {
+      regex += escapeRegExp(char ?? "");
+      i++;
+    }
+  }
+  return new RegExp(`^${regex}$`);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export const _internals = { matchesOwnedPath, normalizePath, globToRegExp };

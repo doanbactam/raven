@@ -165,8 +165,11 @@ async function runSwarm(
   }
   const yamlPath = join(workdir, "swarm.yaml");
   const yamlIn = await readFile(yamlPath, "utf8");
-  const yamlOut = yamlIn.replace(/goal:.*/, `goal: |\n${goal.split("\n").map((l) => `  ${l}`).join("\n")}`);
-  await writeFile(yamlPath, yamlOut);
+  // Use proper YAML parse/serialize instead of fragile regex to handle multi-line goals.
+  const yamlObj = parseYaml(yamlIn) as Record<string, unknown>;
+  yamlObj.goal = goal;
+  const { stringify: stringifyYaml } = await import("yaml");
+  await writeFile(yamlPath, stringifyYaml(yamlObj));
 
   const start = Date.now();
   // Plan
