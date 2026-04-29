@@ -1,0 +1,6 @@
+entry,mode,run,wall_ms,cost_usd,verify_exit,workdir
+med-utils-all-docs-tests,baseline,0,265685,0.5733,0,C:\Users\kisde\AppData\Local\Temp\swarm-eval-med-utils-all-docs-tests-baseline-MQTfFf
+med-utils-all-docs-tests,swarm,0,430902,1.9832,0,C:\Users\kisde\AppData\Local\Temp\swarm-eval-med-utils-all-docs-tests-swarm-8gJOQQ
+med-utils-strings,baseline,0,135621,0.6566,0,C:\Users\kisde\AppData\Local\Temp\swarm-eval-med-utils-strings-baseline-CFA33U
+med-utils-strings,swarm,0,311112,1.5024,0,C:\Users\kisde\AppData\Local\Temp\swarm-eval-med-utils-strings-swarm-OnLQbQ
+med-utils-arrays,baseline,0,105718,0.5376,0,C:\Users\kisde\AppData\Local\Temp\swarm-eval-med-utils-arrays-baseline-FSLvam

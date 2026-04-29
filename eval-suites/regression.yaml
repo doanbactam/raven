@@ -1,0 +1,69 @@
+version: "0.1"
+out_dir: "../eval-results"
+
+# Regression suite. Pinned fixtures live under fixtures/. Each entry is run in
+# its own tempdir copy, so source fixtures stay clean.
+#
+# verify_cmd is the post-hoc quality check, executed in the tempdir after the
+# mode finishes. Exit 0 = pass.
+entries:
+  - id: med-utils-all-docs-tests
+    fixture: ../fixtures/med-utils
+    goal_file: ./goals/med-utils-all-docs-tests.txt
+    modes: [baseline, swarm]
+    runs: 1
+    verify_cmd: "node scripts/verify-goal.cjs all-docs-tests"
+  - id: med-utils-strings
+    fixture: ../fixtures/med-utils
+    goal_file: ./goals/med-utils-strings.txt
+    modes: [baseline, swarm]
+    runs: 1
+    verify_cmd: "node scripts/verify-goal.cjs strings"
+  - id: med-utils-arrays
+    fixture: ../fixtures/med-utils
+    goal_file: ./goals/med-utils-arrays.txt
+    modes: [baseline, swarm]
+    runs: 1
+    verify_cmd: "node scripts/verify-goal.cjs arrays"
+  - id: med-utils-numbers
+    fixture: ../fixtures/med-utils
+    goal_file: ./goals/med-utils-numbers.txt
+    modes: [baseline, swarm]
+    runs: 1
+    verify_cmd: "node scripts/verify-goal.cjs numbers"
+  - id: med-utils-objects
+    fixture: ../fixtures/med-utils
+    goal_file: ./goals/med-utils-objects.txt
+    modes: [baseline, swarm]
+    runs: 1
+    verify_cmd: "node scripts/verify-goal.cjs objects"
+  - id: med-utils-dates
+    fixture: ../fixtures/med-utils
+    goal_file: ./goals/med-utils-dates.txt
+    modes: [baseline, swarm]
+    runs: 1
+    verify_cmd: "node scripts/verify-goal.cjs dates"
+  - id: med-utils-predicates
+    fixture: ../fixtures/med-utils
+    goal_file: ./goals/med-utils-predicates.txt
+    modes: [baseline, swarm]
+    runs: 1
+    verify_cmd: "node scripts/verify-goal.cjs predicates"
+  - id: med-utils-scope-no-package
+    fixture: ../fixtures/med-utils
+    goal_file: ./goals/med-utils-scope-no-package.txt
+    modes: [baseline, swarm]
+    runs: 1
+    verify_cmd: "node scripts/verify-goal.cjs scope-no-package"
+  - id: med-utils-truncate-max-zero
+    fixture: ../fixtures/med-utils
+    goal_file: ./goals/med-utils-truncate-max-zero.txt
+    modes: [baseline, swarm]
+    runs: 1
+    verify_cmd: "node scripts/verify-goal.cjs truncate-max-zero"
+  - id: med-utils-clamp-swapped-bounds
+    fixture: ../fixtures/med-utils
+    goal_file: ./goals/med-utils-clamp-swapped-bounds.txt
+    modes: [baseline, swarm]
+    runs: 1
+    verify_cmd: "node scripts/verify-goal.cjs clamp-swapped-bounds"

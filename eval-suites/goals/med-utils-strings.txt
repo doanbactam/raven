@@ -1,0 +1,5 @@
+Improve src/strings.js only.
+
+Add JSDoc blocks for slugify, truncate, and capitalize. Add tests in tests/strings.test.js using node:test and node:assert/strict. Cover whitespace, punctuation, empty input, and max-length edge cases.
+
+Do not modify package.json, README.md, or any module outside src/strings.js. `npm test` must pass.

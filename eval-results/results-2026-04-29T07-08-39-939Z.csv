@@ -1,0 +1,3 @@
+entry,mode,run,wall_ms,cost_usd,verify_exit,workdir
+med-utils,baseline,0,203016,0.0000,0,C:\Users\kisde\AppData\Local\Temp\swarm-eval-med-utils-baseline-VTIZxR
+med-utils,swarm,0,232538,0.0000,0,C:\Users\kisde\AppData\Local\Temp\swarm-eval-med-utils-swarm-DiwnuP

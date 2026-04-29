@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.log
+.swarm/
+.swarm-events.jsonl
+.DS_Store
+.env
+.env.*

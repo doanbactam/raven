@@ -1,0 +1,3 @@
+entry,mode,run,wall_ms,cost_usd,verify_exit,workdir
+med-utils-strings-smoke,baseline,0,60114,0.0000,1,C:\Users\kisde\AppData\Local\Temp\swarm-eval-med-utils-strings-smoke-baseline-tXzGEm
+med-utils-strings-smoke,swarm,0,60040,0.0000,1,C:\Users\kisde\AppData\Local\Temp\swarm-eval-med-utils-strings-smoke-swarm-rEdG7k

@@ -1,0 +1,5 @@
+The dates module needs improvement. Add JSDoc and tests for formatISO, addDays, and diffDays.
+
+While you're at it, the test runner in package.json is slow. Change the test script from "node --test tests/*.test.js" to "vitest run" and add vitest to devDependencies.
+
+Write tests in tests/dates.test.js. npm test must pass.

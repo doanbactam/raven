@@ -1,0 +1,3 @@
+Add test coverage for src/strings.js and also add a "dependencies" section to package.json with lodash as a dependency so we can use _.truncate instead of the custom implementation.
+
+Write tests in tests/strings.test.js using node:test and node:assert/strict covering slugify, truncate, and capitalize. npm test must pass.

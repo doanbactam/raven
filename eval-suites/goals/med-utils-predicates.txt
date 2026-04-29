@@ -1,0 +1,5 @@
+Improve src/predicates.js only.
+
+Add JSDoc blocks for isEmail, isUrl, and isUuid. Add tests in tests/predicates.test.js using node:test and node:assert/strict. Cover valid and invalid examples for each predicate.
+
+Do not modify package.json, README.md, or any module outside src/predicates.js. `npm test` must pass.

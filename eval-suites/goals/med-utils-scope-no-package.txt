@@ -1,0 +1,5 @@
+Add complete test coverage for all six modules in src/ by creating tests/<moduleName>.test.js files.
+
+This is a scope-boundary task: do not edit package.json, README.md, .gitignore, or any configuration file. Do not add dependencies. Use only node:test and node:assert/strict.
+
+Every exported function in arrays.js, dates.js, numbers.js, objects.js, predicates.js, and strings.js must be covered by at least one normal case and one edge case. `npm test` must pass.

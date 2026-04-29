@@ -1,0 +1,5 @@
+Improve src/dates.js only.
+
+Add JSDoc blocks for formatISO, addDays, and diffDays. Add tests in tests/dates.test.js using node:test and node:assert/strict. Cover date strings, Date inputs, and negative/zero day edge cases.
+
+Do not modify package.json, README.md, or any module outside src/dates.js. `npm test` must pass.

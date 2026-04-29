@@ -1,0 +1,5 @@
+Improve src/arrays.js only.
+
+Add JSDoc blocks for chunk, unique, and groupBy. Add tests in tests/arrays.test.js using node:test and node:assert/strict. Each exported function must have normal and edge-case assertions.
+
+Do not modify package.json, README.md, or any module outside src/arrays.js. `npm test` must pass.

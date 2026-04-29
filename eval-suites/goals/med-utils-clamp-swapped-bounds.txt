@@ -1,0 +1,5 @@
+Fix clamp behavior in src/numbers.js.
+
+clamp(n, min, max) should tolerate callers passing min and max in reverse order. If min > max, normalize the bounds before clamping. For example, clamp(5, 10, 0) should return 5, clamp(-1, 10, 0) should return 0, and clamp(12, 10, 0) should return 10.
+
+Add focused tests in tests/numbers.test.js for normal bounds, swapped bounds, and boundary values. Do not modify files outside src/numbers.js and tests/numbers.test.js. `npm test` must pass.

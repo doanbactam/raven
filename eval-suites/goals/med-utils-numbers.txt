@@ -1,0 +1,5 @@
+Improve src/numbers.js only.
+
+Add JSDoc blocks for clamp, round, and inRange. Add tests in tests/numbers.test.js using node:test and node:assert/strict. Cover boundary values, decimal rounding, and out-of-range cases.
+
+Do not modify package.json, README.md, or any module outside src/numbers.js. `npm test` must pass.

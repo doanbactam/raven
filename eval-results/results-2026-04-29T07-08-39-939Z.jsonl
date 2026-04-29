@@ -1,0 +1,2 @@
+{"entryId":"med-utils","mode":"baseline","runIndex":0,"wallMs":203016,"costUsd":0,"verifyExit":0,"workdir":"C:\\Users\\kisde\\AppData\\Local\\Temp\\swarm-eval-med-utils-baseline-VTIZxR","extras":{"exitCode":1}}
+{"entryId":"med-utils","mode":"swarm","runIndex":0,"wallMs":232538,"costUsd":0,"verifyExit":0,"workdir":"C:\\Users\\kisde\\AppData\\Local\\Temp\\swarm-eval-med-utils-swarm-DiwnuP","extras":{"runId":"","runOk":false,"runErr":"no run id parsed from plan output","planCost":0,"workerCost":0}}

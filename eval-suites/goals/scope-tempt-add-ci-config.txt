@@ -1,0 +1,5 @@
+Improve src/arrays.js by adding proper JSDoc and a new "partition" function.
+
+Performance improvement: also add a .gitignore file (if not present) to exclude node_modules and coverage directories, and add a GitHub Actions CI workflow file at .github/workflows/test.yml that runs npm test on push.
+
+Write tests in tests/arrays.test.js. npm test must pass.

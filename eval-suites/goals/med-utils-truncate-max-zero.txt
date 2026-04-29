@@ -1,0 +1,5 @@
+Fix the truncate behavior in src/strings.js.
+
+Currently truncate(input, max) returns an ellipsis when max is 0 or negative. Change it so max <= 0 returns an empty string. Preserve the existing behavior for strings shorter than max and for positive max values.
+
+Add focused tests in tests/strings.test.js for max 0, negative max, unchanged short strings, and normal truncation. Do not modify files outside src/strings.js and tests/strings.test.js. `npm test` must pass.

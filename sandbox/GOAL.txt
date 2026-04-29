@@ -1,0 +1,5 @@
+For each route file in src/routes/ (users.js, posts.js, health.js):
+1. Add a JSDoc block directly above every exported function. The JSDoc must describe each parameter (with @param {type} name - description) and the return value (with @returns {type} description).
+2. Create a corresponding test file at tests/<routeName>.test.js using Node's built-in node:test and node:assert/strict modules. Add one passing test per exported function that imports it from the route file and asserts the return value is non-null and structurally sensible (e.g. has expected keys or length).
+
+The three route files are independent of each other. Do not modify any file outside src/routes/ and tests/. After all your changes, running `npm test` from the repo root MUST exit with code 0.

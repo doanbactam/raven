@@ -1,0 +1,5 @@
+The objects module src/objects.js needs a new "deepMerge" function that recursively merges nested objects.
+
+Since this is a cross-cutting concern, also add deepMerge to src/arrays.js (for merging array element objects) and re-export it from a new src/index.js barrel file that exports everything from all six modules.
+
+Write tests in tests/objects.test.js. npm test must pass.

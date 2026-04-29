@@ -1,0 +1,5 @@
+Add JSDoc to all functions in src/objects.js. The documentation should describe params with @param tags and return values with @returns.
+
+For better documentation, also create a top-level API.md file that auto-documents all six modules. Include a table of contents and one example per function.
+
+Write tests in tests/objects.test.js. npm test must pass.

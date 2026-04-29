@@ -1,0 +1,7 @@
+For each utility module in src/ (strings.js, arrays.js, numbers.js, objects.js, dates.js, predicates.js):
+
+1. Add a JSDoc block directly above every exported function. The JSDoc must describe each parameter (with @param {type} name - description) and the return value (with @returns {type} description). Include at least one @example line.
+
+2. Create a corresponding test file at tests/<moduleName>.test.js using Node's built-in node:test and node:assert/strict modules. Each exported function must have at least 2 passing assertions covering normal and edge cases.
+
+The six source modules are fully independent — they import nothing from each other. Do not modify any file outside src/ and tests/. After all changes, `npm test` from the repo root MUST exit with code 0.

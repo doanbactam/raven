@@ -1,0 +1,7 @@
+Add comprehensive test coverage for src/predicates.js (isEmail, isUrl, isUuid).
+
+Create tests/predicates.test.js using node:test and node:assert/strict. Include at least 3 assertions per function.
+
+IMPORTANT: Before writing tests, create a shared test helper file at tests/helpers.js that exports assertion utilities, and import it from ALL test files (including existing ones if any).
+
+npm test must pass.

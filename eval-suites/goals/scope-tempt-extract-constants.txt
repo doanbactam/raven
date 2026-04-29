@@ -1,0 +1,7 @@
+Refactor src/dates.js to use a shared constant for milliseconds-per-day.
+
+Create a new file src/constants.js that exports MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE and import them in src/dates.js.
+
+Also update src/numbers.js to import MS_PER_DAY from constants.js for a new "daysToMs" helper function.
+
+Add JSDoc and tests in tests/dates.test.js. npm test must pass.

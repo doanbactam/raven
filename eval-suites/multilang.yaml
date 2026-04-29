@@ -1,0 +1,84 @@
+version: "0.1"
+out_dir: "../eval-results/multilang"
+
+# Multi-SWE-bench mini: TS/JS/Go fixtures for cross-language generalization testing.
+# Acceptance: ≤15% pass-rate drop compared to Python-only med-utils suite.
+
+entries:
+  # --- TypeScript (ts-utils) ---
+  - id: ts-objects-jsdoc-tests
+    fixture: ../fixtures/ts-utils
+    goal: |
+      Add JSDoc comments for all exported functions in src/objects.ts (deepClone, merge, deepEqual).
+      Create tests in src/objects.test.ts using node:test and node:assert/strict.
+      Each function must have at least 2 test cases (normal + edge). npm test must pass after npm run build.
+    modes: [baseline, swarm]
+    runs: 1
+    verify_cmd: "node scripts/verify-goal.cjs objects-jsdoc-tests"
+
+  - id: ts-strings-tests
+    fixture: ../fixtures/ts-utils
+    goal: |
+      Create comprehensive tests for src/strings.ts in src/strings.test.ts using node:test and node:assert/strict.
+      Cover capitalize, camelCase, truncate, and escapeHtml with normal, empty, and edge cases.
+      npm test must pass after npm run build.
+    modes: [baseline, swarm]
+    runs: 1
+    verify_cmd: "node scripts/verify-goal.cjs strings-tests"
+
+  - id: ts-arrays-generics
+    fixture: ../fixtures/ts-utils
+    goal: |
+      Ensure all functions in src/arrays.ts use proper TypeScript generics.
+      Add comprehensive tests in src/arrays.test.ts using node:test and node:assert/strict.
+      Cover chunk, unique, zip, and flatten with typed and edge cases. Must pass tsc --noEmit and npm test.
+    modes: [baseline, swarm]
+    runs: 1
+    verify_cmd: "node scripts/verify-goal.cjs arrays-generics"
+
+  # --- JavaScript (med-utils, same fixture different goals) ---
+  - id: js-strings-edge
+    fixture: ../fixtures/med-utils
+    goal: |
+      Improve edge case handling in src/strings.js:
+      - truncate(s, 0) should return ""
+      - truncate(s, -1) should return ""
+      - slugify("") should return ""
+      - capitalize("") should return ""
+      Add tests in tests/strings.test.js covering these edge cases.
+      Do not touch any file outside src/strings.js and tests/strings.test.js.
+    modes: [baseline, swarm]
+    runs: 1
+    verify_cmd: "node scripts/verify-goal.cjs strings"
+
+  - id: js-numbers-edge
+    fixture: ../fixtures/med-utils
+    goal: |
+      Add edge-case tests for src/numbers.js: clamp with swapped bounds, round with negative digits, inRange with equal bounds.
+      Create tests/numbers.test.js using node:test and node:assert/strict.
+      Do not modify any file outside src/numbers.js and tests/numbers.test.js.
+    modes: [baseline, swarm]
+    runs: 1
+    verify_cmd: "node scripts/verify-goal.cjs numbers"
+
+  # --- Go (go-utils) ---
+  - id: go-stringutil-tests
+    fixture: ../fixtures/go-utils
+    goal: |
+      Create stringutil/stringutil_test.go with comprehensive Go tests for Reverse, IsPalindrome, and WordCount.
+      Use the standard testing package. Include table-driven tests with normal and edge cases
+      (empty strings, Unicode, single characters). Run with go test ./stringutil/...
+    modes: [baseline, swarm]
+    runs: 1
+    verify_cmd: "go test ./stringutil/... -v -count=1 2>&1 | tail -20"
+
+  - id: go-mathutil-tests
+    fixture: ../fixtures/go-utils
+    goal: |
+      Create mathutil/mathutil_test.go with Go tests for Clamp, Abs, and GCD.
+      Use the standard testing package with table-driven tests.
+      Edge cases: Clamp with swapped min/max, Abs of 0, GCD of negative numbers, GCD(0, n).
+      Run with go test ./mathutil/... -v
+    modes: [baseline, swarm]
+    runs: 1
+    verify_cmd: "go test ./mathutil/... -v -count=1 2>&1 | tail -20"

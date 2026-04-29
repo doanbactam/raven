@@ -1,0 +1,5 @@
+Improve src/objects.js only.
+
+Add JSDoc blocks for pick, omit, and isEmpty. Add tests in tests/objects.test.js using node:test and node:assert/strict. Cover missing keys, nullish objects, and retained object values.
+
+Do not modify package.json, README.md, or any module outside src/objects.js. `npm test` must pass.

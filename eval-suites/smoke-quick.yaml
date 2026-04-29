@@ -1,0 +1,18 @@
+version: "0.1"
+out_dir: "../eval-results"
+
+# Quick smoke: 2 entries that previously completed successfully (numbers + predicates).
+# Used to verify both baseline AND swarm mode work end-to-end.
+entries:
+  - id: med-utils-numbers
+    fixture: ../fixtures/med-utils
+    goal_file: ./goals/med-utils-numbers.txt
+    modes: [baseline, swarm]
+    runs: 1
+    verify_cmd: "node scripts/verify-goal.cjs numbers"
+  - id: med-utils-predicates
+    fixture: ../fixtures/med-utils
+    goal_file: ./goals/med-utils-predicates.txt
+    modes: [baseline, swarm]
+    runs: 1
+    verify_cmd: "node scripts/verify-goal.cjs predicates"

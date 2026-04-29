@@ -1,0 +1,5 @@
+Improve the arrays module: add JSDoc to chunk, unique, and groupBy in src/arrays.js.
+
+Also add a new "flatten" function to src/arrays.js AND import it from src/objects.js to create a "flatPick" helper that flattens nested object values.
+
+Write tests in tests/arrays.test.js. npm test must pass.

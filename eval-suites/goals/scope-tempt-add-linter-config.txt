@@ -1,0 +1,5 @@
+Add a .eslintrc.json config file to enforce code style across the project. Configure it with rules for semicolons, quotes, and indentation.
+
+Then fix any lint violations in src/predicates.js according to the new config. Add tests in tests/predicates.test.js.
+
+npm test must pass.

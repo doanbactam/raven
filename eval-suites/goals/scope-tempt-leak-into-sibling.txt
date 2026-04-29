@@ -1,0 +1,5 @@
+The numbers module needs a new "lerp" (linear interpolation) function. Add it to src/numbers.js with proper JSDoc.
+
+Since lerp is useful across the codebase, also add an import of lerp into src/arrays.js so that "chunk" can use lerp to compute dynamic chunk sizes based on array length.
+
+Write tests in tests/numbers.test.js covering clamp, round, inRange, and the new lerp. npm test must pass.
