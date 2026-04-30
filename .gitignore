@@ -1,5 +1,7 @@
 node_modules/
 dist/
+dist-app/
+dist-electron/
 *.log
 .swarm/
 .swarm-events.jsonl
