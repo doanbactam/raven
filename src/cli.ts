@@ -14,6 +14,8 @@ import { executeRun } from "./run-control.js";
 import { runPreMergeHooks } from "./merge-hook.js";
 import { runSWEBenchSuite, formatSWEBenchSummary } from "./swebench.js";
 import { runPilot, formatPilotReport } from "./pilot.js";
+import { startUiServer } from "./ui.js";
+import { startTui } from "./tui.js";
 
 const program = new Command();
 program
@@ -155,6 +157,13 @@ program
           console.error(`! pre-merge hook rejected ${t.id}: "${lastFail?.command}" exited ${lastFail?.exitCode}`);
           if (lastFail?.stderr) console.error(`  ${lastFail.stderr.split("\n")[0]}`);
           failed.push(t.id);
+          store.appendEvent({
+            run_id: runId,
+            task_id: t.id,
+            type: "ArbitrationRequested",
+            ts: new Date().toISOString(),
+            payload: { reason: "pre_merge_hook_rejected", hookExitCode: lastFail?.exitCode },
+          });
           console.error("  Stopping. Fix the hook issue and re-run merge.");
           break;
         }
@@ -167,6 +176,13 @@ program
       } else {
         failed.push(t.id);
         console.error(`! merge failed for ${t.id}: ${r.message.split("\n")[0]}`);
+        store.appendEvent({
+          run_id: runId,
+          task_id: t.id,
+          type: "ArbitrationRequested",
+          ts: new Date().toISOString(),
+          payload: { reason: "merge_conflict", mergeError: r.message.slice(0, 2000) },
+        });
         console.error("  Stopping. Resolve the conflict manually and re-run with the remaining tasks.");
         break;
       }
@@ -230,6 +246,31 @@ function topologicalOrder<T extends { id: string; depends_on: string[] }>(tasks:
 }
 
 program
+  .command("history")
+  .description("Show past run summaries with cost and status")
+  .option("--limit <n>", "max runs to show", "10")
+  .action((opts: { limit: string }) => {
+    const store = new SwarmStore(process.cwd());
+    const runs = store.listRuns().slice(0, Number.parseInt(opts.limit, 10));
+    if (runs.length === 0) {
+      console.log("No past runs found.");
+      store.close();
+      return;
+    }
+    for (const run of runs) {
+      const tasks = store.listRuns.length > 0 ? store.listTasks(run.id) : [];
+      const done = tasks.filter((t) => t.status === "done").length;
+      const failed = tasks.filter((t) => t.status === "failed" || t.status === "needs_arbitration").length;
+      const pending = tasks.filter((t) => t.status === "pending").length;
+      const cost = store.sumRunCost(run.id);
+      console.log(
+        `[${run.status.padEnd(12)}] ${run.id}  ${done}d/${failed}f/${pending}p  $${cost.toFixed(4)}  "${run.goal.slice(0, 60)}${run.goal.length > 60 ? "..." : ""}"  ${run.created_at}`,
+      );
+    }
+    store.close();
+  });
+
+program
   .command("doctor")
   .description("Check environment, config, and git health before running")
   .action(async () => {
@@ -239,6 +280,29 @@ program
       console.error("\nDoctor found blocking issues. Fix the [FAIL] entries above.");
       process.exit(1);
     }
+  });
+
+program
+  .command("ui")
+  .description("Open the local swarm control plane GUI")
+  .option("--host <host>", "host to bind", "127.0.0.1")
+  .option("--port <port>", "preferred port", "8787")
+  .option("--no-open", "do not open a browser window")
+  .action(async (opts: { host: string; port: string; open: boolean }) => {
+    const url = await startUiServer(process.cwd(), {
+      host: opts.host,
+      port: Number.parseInt(opts.port, 10),
+      open: opts.open,
+    });
+    console.log(`swarm UI listening at ${url}`);
+    console.log("Press Ctrl+C to stop.");
+  });
+
+program
+  .command("tui")
+  .description("Open the interactive terminal control plane")
+  .action(async () => {
+    await startTui(process.cwd());
   });
 
 program
@@ -294,6 +358,20 @@ program
     await wf(opts.out, md, "utf8");
     console.log(md);
     console.log(`\nReport written to ${opts.out}`);
+  });
+
+program
+  .command("app")
+  .description("Launch the Electron desktop app")
+  .action(async () => {
+    const { resolve: pathResolve } = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+    const { execa: exec } = await import("execa");
+    const dir = pathResolve(fileURLToPath(new URL(".", import.meta.url)), "..");
+    const electronBin = pathResolve(dir, "node_modules", ".bin", "electron");
+    console.log("Launching swarm-cp desktop...");
+    const child = exec(electronBin, ["."], { cwd: dir, stdio: "inherit", reject: false });
+    await child;
   });
 
 program.parseAsync(process.argv).catch((err) => {

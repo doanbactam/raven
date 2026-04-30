@@ -4,6 +4,7 @@
   "private": true,
   "description": "Claude-native swarm orchestration control plane (MVP skeleton)",
   "type": "module",
+  "main": "dist-electron/main.js",
   "bin": {
     "swarm": "./dist/cli.js"
   },
@@ -12,7 +13,14 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "build:app": "npm run build && npm run build:electron && vite build",
     "dev": "tsx src/cli.ts",
+    "dev:app": "concurrently -n api,vite,electron \"tsx src/cli.ts ui --no-open\" \"vite\" \"wait-on http://localhost:5173 && npm run build && npm run build:electron && electron .\"",
+    "dev:web": "concurrently -n api,vite \"tsx src/cli.ts ui --no-open\" \"vite\"",
+    "ui": "tsx src/cli.ts ui",
+    "tui": "tsx src/cli.ts tui",
+    "app": "tsx src/cli.ts app",
     "start": "node dist/cli.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
@@ -20,19 +28,33 @@
     "eval:regression": "node dist/cli.js eval eval-suites/regression.yaml --swarm-cli \"node dist/cli.js\""
   },
   "dependencies": {
-    "better-sqlite3": "^11.3.0",
+    "better-sqlite3": "^12.9.0",
     "commander": "^12.1.0",
     "execa": "^9.5.0",
+    "ink": "^7.0.1",
+    "lucide-react": "^0.475.0",
     "p-queue": "^8.0.1",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
     "simple-git": "^3.27.0",
     "yaml": "^2.6.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.1.0",
     "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^22.7.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.4.0",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.0",
+    "electron": "^35.1.2",
+    "tailwindcss": "^4.1.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
-    "vitest": "^2.1.0"
+    "vite": "^6.3.0",
+    "vitest": "^2.1.0",
+    "wait-on": "^8.0.0"
   }
 }

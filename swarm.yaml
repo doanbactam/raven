@@ -1,18 +1,16 @@
 version: "0.1"
-goal: "Describe your goal here"
+goal: hey claude
 parallelism: 2
 budget_usd: 5
 planner: swarm-architect
 worker: swarm-implementer
 quality_gate: swarm-quality-gate
-
 policies:
   same_file: block
   same_symbol: ask
   out_of_scope_edit: fail
   tests_required: true
   security_scan_required: false
-
 routing:
   plan_model: strong
   worker_model: fast

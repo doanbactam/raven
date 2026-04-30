@@ -114,6 +114,7 @@ function sanitizedEnv(): NodeJS.ProcessEnv {
     "GIT_PROXY_COMMAND",
     "GIT_EXTERNAL_DIFF",
     "GIT_SSH_COMMAND",
+    "GIT_EDITOR",
     "EDITOR",
     "VISUAL",
   ];

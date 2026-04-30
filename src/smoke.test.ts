@@ -78,6 +78,7 @@ describe("store + claims", () => {
     const tasks = store.listTasks(runId);
     expect(tasks).toHaveLength(2);
     expect(tasks[0]?.acceptance_checks).toEqual(["echo ok"]);
+    expect(store.listRuns()[0]?.id).toBe(runId);
 
     expect(store.tryClaim(runId, "t1", ["src/a.ts"], [])).toBe(true);
     // t2 wants the same file → must be blocked
@@ -313,7 +314,7 @@ describe("dispatcher scope enforcement", () => {
     });
 
     const summary = await dispatcher.run(runId);
-    expect(summary).toEqual({ done: 0, failed: 1, blocked: 0 });
+    expect(summary).toEqual({ done: 0, failed: 1, blocked: 0, budgetExceeded: false });
     expect(store.listTasks(runId)[0]?.status).toBe("needs_arbitration");
     const log = readFileSync(join(dir, ".swarm", "events.jsonl"), "utf8");
     expect(log).toContain("ArbitrationRequested");
@@ -379,7 +380,7 @@ describe("dispatcher stale-lock detection", () => {
     });
 
     const summary = await dispatcher.run(runId);
-    expect(summary).toEqual({ done: 1, failed: 1, blocked: 0 });
+    expect(summary).toEqual({ done: 1, failed: 1, blocked: 0, budgetExceeded: false });
     const statuses = Object.fromEntries(store.listTasks(runId).map((t) => [t.id, t.status]));
     expect(statuses["stale-task"]).toBe("needs_arbitration");
     expect(statuses["next-task"]).toBe("done");
@@ -510,7 +511,7 @@ describe("resume recovery", () => {
 
     const result = await executeRun(dir, runId, { resumed: true, runner: runner as never });
     expect(result.recoveredRunning).toBe(1);
-    expect(result.summary).toEqual({ done: 2, failed: 0, blocked: 0 });
+    expect(result.summary).toEqual({ done: 2, failed: 0, blocked: 0, budgetExceeded: false });
     expect(calls).toBe(1);
     expect(sessionIds).toHaveLength(1);
     expect(models).toEqual(["sonnet"]);
@@ -564,7 +565,7 @@ describe("resume recovery", () => {
     };
     const result = await executeRun(dir, runId, { resumed: true, runner: runner as never });
     expect(result.recoveredRunning).toBe(0);
-    expect(result.summary).toEqual({ done: 0, failed: 1, blocked: 0 });
+    expect(result.summary).toEqual({ done: 0, failed: 1, blocked: 0, budgetExceeded: false });
 
     const verifyStore = new SwarmStore(dir);
     expect(verifyStore.listTasks(runId)[0]?.status).toBe("needs_arbitration");
@@ -786,6 +787,43 @@ describe("replay", () => {
     expect(out).toContain("Cost: $0.3000");
     expect(out).toContain("PlanCreated");
     expect(out).toContain("TaskValidated t1 cost=$0.2000");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("renders RunCompleted with totalCostUsd and budget info", async () => {
+    const { loadReplay, formatReplay } = await import("./replay.js");
+    const dir = mkdtempSync(join(tmpdir(), "swarm-replay-complete-"));
+    mkdirSync(join(dir, ".swarm"), { recursive: true });
+    writeFileSync(
+      join(dir, ".swarm", "events.jsonl"),
+      [
+        '{"run_id":"r1","type":"PlanCreated","ts":"2025-01-01T00:00:01.000Z","payload":{"costUsd":0.1}}',
+        '{"run_id":"r1","task_id":"t1","type":"TaskValidated","ts":"2025-01-01T00:00:02.000Z","payload":{"costUsd":0.3}}',
+        '{"run_id":"r1","type":"RunCompleted","ts":"2025-01-01T00:00:03.000Z","payload":{"done":1,"failed":0,"blocked":0,"totalCostUsd":0.4,"budgetExceeded":false}}',
+      ].join("\n"),
+    );
+    const summary = loadReplay(dir, "r1");
+    const out = formatReplay(summary);
+    expect(out).toContain("RunCompleted");
+    expect(out).toContain("total_cost=$0.4000");
+    expect(out).toContain("done=1");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("renders RunCompleted with budget exceeded warning", async () => {
+    const { loadReplay, formatReplay } = await import("./replay.js");
+    const dir = mkdtempSync(join(tmpdir(), "swarm-replay-budget-"));
+    mkdirSync(join(dir, ".swarm"), { recursive: true });
+    writeFileSync(
+      join(dir, ".swarm", "events.jsonl"),
+      [
+        '{"run_id":"r1","type":"RunCompleted","ts":"2025-01-01T00:00:03.000Z","payload":{"done":1,"failed":0,"blocked":2,"totalCostUsd":5.2,"budgetExceeded":true}}',
+      ].join("\n"),
+    );
+    const out = formatReplay(loadReplay(dir, "r1"));
+    expect(out).toContain("BUDGET_EXCEEDED");
+    expect(out).toContain("blocked=2");
+    expect(out).toContain("total_cost=$5.2000");
     rmSync(dir, { recursive: true, force: true });
   });
 });
@@ -1075,7 +1113,7 @@ describe("Phase 3: dispatcher persists hook events", () => {
     });
 
     const summary = await dispatcher.run(runId);
-    expect(summary).toEqual({ done: 1, failed: 0, blocked: 0 });
+    expect(summary).toEqual({ done: 1, failed: 0, blocked: 0, budgetExceeded: false });
     const log = readFileSync(join(dir, ".swarm", "events.jsonl"), "utf8");
     expect(log).toContain("HookPreToolUse");
     expect(log).toContain("HookPostToolUse");
@@ -1083,4 +1121,182 @@ describe("Phase 3: dispatcher persists hook events", () => {
     store.close();
     rmSync(dir, { recursive: true, force: true });
   }, 20_000);
+});
+
+describe("budget enforcement", () => {
+  it("stops dispatching when cumulative cost exceeds budget", async () => {
+    const { execa } = await import("execa");
+    const { Dispatcher } = await import("./dispatcher.js");
+    const { WorktreeService } = await import("./worktree.js");
+    const dir = mkdtempSync(join(tmpdir(), "swarm-budget-"));
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(join(dir, "src", "a.ts"), "export const a = 1;\n");
+    writeFileSync(join(dir, "src", "b.ts"), "export const b = 1;\n");
+    await execa("git", ["init"], { cwd: dir });
+    await execa("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+    await execa("git", ["config", "user.name", "Test"], { cwd: dir });
+    await execa("git", ["add", "src/a.ts", "src/b.ts"], { cwd: dir });
+    await execa("git", ["commit", "-m", "init"], { cwd: dir });
+
+    const store = new SwarmStore(dir);
+    const runId = "run-budget";
+    store.insertRun(runId, "budget test");
+    store.appendEvent({
+      run_id: runId,
+      type: "PlanCreated" as const,
+      ts: new Date().toISOString(),
+      payload: { costUsd: 0.4 },
+    });
+    store.insertTask(runId, {
+      id: "t1",
+      summary: "edit a.ts",
+      depends_on: [],
+      owned_files: ["src/a.ts"],
+      owned_symbols: [],
+      acceptance_checks: [],
+      risk_level: "low",
+    });
+    store.insertTask(runId, {
+      id: "t2",
+      summary: "edit b.ts",
+      depends_on: ["t1"],
+      owned_files: ["src/b.ts"],
+      owned_symbols: [],
+      acceptance_checks: [],
+      risk_level: "low",
+    });
+
+    let calls = 0;
+    const runner = {
+      run: async (opts: { cwd: string }) => {
+        calls++;
+        const file = calls === 1 ? "a.ts" : "b.ts";
+        writeFileSync(join(opts.cwd, "src", file), `export const ${file[0]} = ${calls};\n`);
+        return { exitCode: 0, stdout: "", stderr: "", finalMessage: "done", costUsd: 0.35 };
+      },
+    };
+    const cfg = SwarmConfigSchema.parse({ version: "0.1", goal: "budget test", budget_usd: 0.5 });
+    const dispatcher = new Dispatcher({
+      runner: runner as never,
+      worktrees: new WorktreeService(dir),
+      store,
+      cfg,
+      rootDir: dir,
+    });
+
+    const summary = await dispatcher.run(runId);
+    expect(summary.budgetExceeded).toBe(true);
+    expect(calls).toBe(1);
+    const tasks = store.listTasks(runId);
+    const statuses = Object.fromEntries(tasks.map((t) => [t.id, t.status]));
+    expect(statuses["t1"]).toBe("done");
+    expect(statuses["t2"]).toBe("pending");
+    const log = readFileSync(join(dir, ".swarm", "events.jsonl"), "utf8");
+    expect(log).toContain("budget_exceeded");
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }, 20_000);
+});
+
+describe("store sumRunCost", () => {
+  it("sums costUsd from events for a specific run", () => {
+    const dir = mkdtempSync(join(tmpdir(), "swarm-sumcost-"));
+    const store = new SwarmStore(dir);
+    store.appendEvent({ run_id: "r1", type: "PlanCreated", ts: new Date().toISOString(), payload: { costUsd: 0.1 } });
+    store.appendEvent({ run_id: "r1", task_id: "t1", type: "TaskValidated", ts: new Date().toISOString(), payload: { costUsd: 0.2 } });
+    store.appendEvent({ run_id: "r2", type: "PlanCreated", ts: new Date().toISOString(), payload: { costUsd: 5 } });
+    expect(store.sumRunCost("r1")).toBeCloseTo(0.3, 4);
+    expect(store.sumRunCost("r2")).toBeCloseTo(5, 4);
+    expect(store.sumRunCost("r3")).toBe(0);
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("plan conflict validation", () => {
+  it("detects overlapping file ownership when policy is block", async () => {
+    const { validatePlanConflicts } = await import("./planner.js");
+    const cfg = SwarmConfigSchema.parse({ version: "0.1", goal: "test", policies: { same_file: "block" } });
+    const conflicts = validatePlanConflicts({
+      goal: "test",
+      tasks: [
+        { id: "t1", summary: "a", depends_on: [], owned_files: ["src/a.ts"], owned_symbols: [], acceptance_checks: [], risk_level: "low" },
+        { id: "t2", summary: "b", depends_on: [], owned_files: ["src/a.ts"], owned_symbols: [], acceptance_checks: [], risk_level: "low" },
+      ],
+    }, cfg);
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]?.file).toBe("src/a.ts");
+    expect(conflicts[0]?.tasks).toEqual(["t1", "t2"]);
+  });
+
+  it("returns no conflicts when policy is allow", async () => {
+    const { validatePlanConflicts } = await import("./planner.js");
+    const cfg = SwarmConfigSchema.parse({ version: "0.1", goal: "test", policies: { same_file: "allow" } });
+    const conflicts = validatePlanConflicts({
+      goal: "test",
+      tasks: [
+        { id: "t1", summary: "a", depends_on: [], owned_files: ["src/a.ts"], owned_symbols: [], acceptance_checks: [], risk_level: "low" },
+        { id: "t2", summary: "b", depends_on: [], owned_files: ["src/a.ts"], owned_symbols: [], acceptance_checks: [], risk_level: "low" },
+      ],
+    }, cfg);
+    expect(conflicts).toHaveLength(0);
+  });
+
+  it("returns no conflicts when tasks own different files", async () => {
+    const { validatePlanConflicts } = await import("./planner.js");
+    const cfg = SwarmConfigSchema.parse({ version: "0.1", goal: "test" });
+    const conflicts = validatePlanConflicts({
+      goal: "test",
+      tasks: [
+        { id: "t1", summary: "a", depends_on: [], owned_files: ["src/a.ts"], owned_symbols: [], acceptance_checks: [], risk_level: "low" },
+        { id: "t2", summary: "b", depends_on: [], owned_files: ["src/b.ts"], owned_symbols: [], acceptance_checks: [], risk_level: "low" },
+      ],
+    }, cfg);
+    expect(conflicts).toHaveLength(0);
+  });
+});
+
+describe("failure pattern memory", () => {
+  it("loadFailurePatterns reads past arbitration events from event log", async () => {
+    const { loadFailurePatterns, buildPlannerPrompt } = await import("./planner.js");
+    const dir = mkdtempSync(join(tmpdir(), "swarm-failure-"));
+    mkdirSync(join(dir, ".swarm"), { recursive: true });
+    writeFileSync(join(dir, ".swarm", "events.jsonl"), [
+      '{"run_id":"r1","task_id":"t1","type":"ArbitrationRequested","ts":"2025-01-01T00:00:00Z","payload":{"reason":"out_of_scope_edit","outOfScopeFiles":["package.json"]}}',
+      '{"run_id":"r1","task_id":"t1","type":"ArbitrationRequested","ts":"2025-01-01T00:00:01Z","payload":{"reason":"budget_exceeded"}}',
+    ].join("\n"));
+
+    const patterns = loadFailurePatterns(dir);
+    expect(patterns.length).toBeGreaterThanOrEqual(2);
+    expect(patterns.some((p) => p.includes("out-of-scope") && p.includes("package.json"))).toBe(true);
+    expect(patterns.some((p) => p.includes("budget exceeded"))).toBe(true);
+
+    // Verify patterns are injected into planner prompt
+    const cfg = SwarmConfigSchema.parse({ version: "0.1", goal: "g" });
+    const prompt = buildPlannerPrompt(cfg, "linux", patterns);
+    expect(prompt).toContain("Past failure patterns");
+    expect(prompt).toContain("out-of-scope");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("loadFailurePatterns returns empty when no event log exists", async () => {
+    const { loadFailurePatterns } = await import("./planner.js");
+    const dir = mkdtempSync(join(tmpdir(), "swarm-noevents-"));
+    expect(loadFailurePatterns(dir)).toEqual([]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("deduplicates identical failure patterns", async () => {
+    const { loadFailurePatterns } = await import("./planner.js");
+    const dir = mkdtempSync(join(tmpdir(), "swarm-dedup-"));
+    mkdirSync(join(dir, ".swarm"), { recursive: true });
+    writeFileSync(join(dir, ".swarm", "events.jsonl"), [
+      '{"run_id":"r1","type":"ArbitrationRequested","ts":"2025-01-01T00:00:00Z","payload":{"reason":"budget_exceeded"}}',
+      '{"run_id":"r2","type":"ArbitrationRequested","ts":"2025-01-01T00:00:01Z","payload":{"reason":"budget_exceeded"}}',
+    ].join("\n"));
+    const patterns = loadFailurePatterns(dir);
+    const budgetPatterns = patterns.filter((p) => p.includes("budget exceeded"));
+    expect(budgetPatterns).toHaveLength(1);
+    rmSync(dir, { recursive: true, force: true });
+  });
 });

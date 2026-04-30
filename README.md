@@ -66,9 +66,38 @@ swarm replay <RUN_ID>    # timeline of all events + cost
 | `swarm merge <id>` | Merge done branches in topological order |
 | `swarm clean <id>` | Remove worktrees for a run |
 | `swarm doctor` | Pre-flight environment checks |
+| `swarm tui` | Open the interactive terminal control plane |
+| `swarm ui` | Open the local web control plane |
 | `swarm eval <suite>` | Run eval suite (baseline vs swarm) |
 | `swarm swebench <suite>` | Run SWE-bench harness |
 | `swarm pilot <suite>` | Generate go/no-go PILOT_REPORT.md |
+
+## Terminal Control Plane
+
+Run `swarm tui` or `npm run tui` to operate swarm-cp without editing YAML by hand.
+
+| Input | Action |
+|-------|--------|
+| type or paste text | Start a request in the composer |
+| `Enter` | Create a plan from the current request |
+| `/run` | Confirm and run the selected plan |
+| `/resume` | Continue an interrupted selected run |
+| `/runs` | Show recent plans and move between them with `j`/`k` or arrows |
+| `/tasks` | Show the generated task plan |
+| `/replay` | Show the run timeline |
+| `/env` | Show environment checks |
+| `/settings` | Edit `parallelism` and `budget_usd` |
+| `/refresh` | Reload local state |
+| `/help` | Show the command reference in the transcript |
+| `/init` | Scaffold swarm config in the current repo |
+| `/new` | Return to the request-first guide |
+| `/clear` | Clear shell output and return to the guide |
+| `@path/to/file` | Attach a file snippet to the next plan prompt |
+| `!command` | Run a shell command from the TUI and show the output |
+| `Up` / `Down` | Recall previous prompts while editing |
+| `q` | Quit when the composer is not focused |
+
+Power-user aliases still work: `1` focuses the prompt, `2` runs, `3` toggles tasks/replay, `4` edits settings, `5` refreshes, `l` opens the run list, `d` opens environment checks, `j`/`k` or arrows move between runs, `Ctrl+P` plans with the saved `swarm.yaml` goal, and `i` initializes project scaffolding.
 
 ## Configuration (`swarm.yaml`)
 
@@ -188,6 +217,8 @@ swarm pilot eval-suites/regression.yaml --out PILOT_REPORT.md
 ```bash
 npm install
 npm run build         # TypeScript → dist/
+npm run tui           # Ink terminal control plane
+npm run ui            # local web control plane
 npm test              # vitest (56+ tests)
 npm run typecheck     # tsc --noEmit
 ```
