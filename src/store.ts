@@ -3,6 +3,11 @@ import { mkdirSync, appendFileSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { SwarmEvent } from "./schema.js";
 
+/** Parse JSON safely, returning `fallback` on malformed input. */
+function safeJsonParse<T>(json: string, fallback: T): T {
+  try { return JSON.parse(json) as T; } catch { return fallback; }
+}
+
 export interface ClaimRow {
   run_id: string;
   path: string;
@@ -182,10 +187,10 @@ export class SwarmStore {
       id: r.id,
       status: r.status,
       summary: r.summary,
-      depends_on: JSON.parse(r.depends_on),
-      owned_files: JSON.parse(r.owned_files),
-      owned_symbols: JSON.parse(r.owned_symbols),
-      acceptance_checks: JSON.parse(r.acceptance_checks),
+      depends_on: safeJsonParse(r.depends_on, []),
+      owned_files: safeJsonParse(r.owned_files, []),
+      owned_symbols: safeJsonParse(r.owned_symbols, []),
+      acceptance_checks: safeJsonParse(r.acceptance_checks, []),
       risk_level: r.risk_level as "low" | "medium" | "high",
     }));
   }
@@ -195,6 +200,15 @@ export class SwarmStore {
       .prepare(`SELECT worktree_path FROM tasks WHERE run_id = ? AND id = ?`)
       .get(runId, taskId) as { worktree_path: string | null } | undefined;
     return row?.worktree_path ?? undefined;
+  }
+
+  listTaskWorktrees(runId: string): Array<{ taskId: string; worktreePath: string }> {
+    const rows = this.db
+      .prepare(`SELECT id, worktree_path FROM tasks WHERE run_id = ? AND worktree_path IS NOT NULL`)
+      .all(runId) as Array<{ id: string; worktree_path: string | null }>;
+    return rows
+      .filter((row): row is { id: string; worktree_path: string } => typeof row.worktree_path === "string")
+      .map((row) => ({ taskId: row.id, worktreePath: row.worktree_path }));
   }
 
   getTaskSessionId(runId: string, taskId: string): string | undefined {

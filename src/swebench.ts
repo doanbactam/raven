@@ -61,7 +61,21 @@ export interface SWEBenchRunResult {
 
 export async function loadSWEBenchSuite(suitePath: string): Promise<SWEBenchSuite> {
   const raw = await readFile(suitePath, "utf8");
-  return parseYaml(raw) as SWEBenchSuite;
+  const parsed = parseYaml(raw);
+  // Validate required fields exist — full Zod schema would be better but
+  // this catches the most common issues (missing fields, wrong types).
+  if (!parsed || typeof parsed !== "object") throw new Error("SWE-bench suite: invalid YAML — expected an object");
+  const obj = parsed as Record<string, unknown>;
+  if (!Array.isArray(obj.instances)) throw new Error("SWE-bench suite: missing or invalid 'instances' array");
+  for (const inst of obj.instances as Record<string, unknown>[]) {
+    if (typeof inst.instance_id !== "string") throw new Error("SWE-bench suite: instance missing 'instance_id'");
+    if (typeof inst.repo !== "string") throw new Error(`SWE-bench suite: ${inst.instance_id ?? "?"} missing 'repo'`);
+    if (typeof inst.base_commit !== "string") throw new Error(`SWE-bench suite: ${inst.instance_id ?? "?"} missing 'base_commit'`);
+    if (typeof inst.problem_statement !== "string") throw new Error(`SWE-bench suite: ${inst.instance_id ?? "?"} missing 'problem_statement'`);
+    if (typeof inst.test_patch !== "string") throw new Error(`SWE-bench suite: ${inst.instance_id ?? "?"} missing 'test_patch'`);
+    if (typeof inst.test_cmd !== "string") throw new Error(`SWE-bench suite: ${inst.instance_id ?? "?"} missing 'test_cmd'`);
+  }
+  return parsed as SWEBenchSuite;
 }
 
 /**
@@ -138,15 +152,14 @@ async function runInstance(
       const swarmCli = parseCmd(opts.swarmCli, process.cwd());
       await execa(swarmCli.cmd, [...swarmCli.args, "init"], { cwd: workdir, reject: false });
 
-      // Inject goal into swarm.yaml
+      // Inject goal into swarm.yaml using proper YAML parse/serialize (not fragile regex)
       const yamlPath = join(workdir, "swarm.yaml");
       if (existsSync(yamlPath)) {
         const yamlIn = await readFile(yamlPath, "utf8");
-        const yamlOut = yamlIn.replace(
-          /goal:.*/,
-          `goal: |\n${inst.problem_statement.split("\n").map((l) => `  ${l}`).join("\n")}`,
-        );
-        await writeFile(yamlPath, yamlOut);
+        const yamlObj = parseYaml(yamlIn) as Record<string, unknown>;
+        yamlObj.goal = inst.problem_statement;
+        const { stringify: stringifyYaml } = await import("yaml");
+        await writeFile(yamlPath, stringifyYaml(yamlObj));
       }
 
       const planRes = await execa(swarmCli.cmd, [...swarmCli.args, "plan"], {
@@ -239,7 +252,10 @@ async function applyAndTest(
     });
     if (applyRes.exitCode !== 0) {
       // Try with 3-way merge fallback
-      await execa("git", ["apply", "--3way", patchPath], { cwd: workdir, reject: false, timeout: 60_000 });
+      const fallbackRes = await execa("git", ["apply", "--3way", patchPath], { cwd: workdir, reject: false, timeout: 60_000 });
+      if (fallbackRes.exitCode !== 0) {
+        return { testPassed: false, testExitCode: -1 };
+      }
     }
   }
 
@@ -262,7 +278,10 @@ async function sumSwarmCost(eventsPath: string): Promise<number> {
     if (!line.trim()) continue;
     try {
       const e = JSON.parse(line) as { type?: string; payload?: { costUsd?: number } };
-      if (typeof e.payload?.costUsd === "number") total += e.payload.costUsd;
+      if (
+        (e.type === "TaskValidated" || e.type === "TaskFailed" || e.type === "ArbitrationRequested") &&
+        typeof e.payload?.costUsd === "number"
+      ) total += e.payload.costUsd;
     } catch { /* skip */ }
   }
   return total;
@@ -273,13 +292,14 @@ async function execaRetry(
   args: string[],
   opts: { cwd: string; timeout: number },
   maxRetries = 2,
-): Promise<{ exitCode?: number; stdout?: string; stderr?: string }> {
-  let result: { exitCode?: number; stdout?: string; stderr?: string } | undefined;
+): Promise<{ exitCode?: number; stdout?: string; stderr?: string; timedOut?: boolean }> {
+  let result: { exitCode?: number; stdout?: string; stderr?: string; timedOut?: boolean } | undefined;
   for (let i = 0; i <= maxRetries; i++) {
     result = await execa(cmd, args, { cwd: opts.cwd, reject: false, timeout: opts.timeout, stdin: "ignore" });
     if (
       result.exitCode === 0 ||
-      !isTransientClaudeError({ stdout: String(result.stdout ?? ""), stderr: String(result.stderr ?? "") }) ||
+      result.timedOut ||
+      !isTransientClaudeError({ stdout: "", stderr: String(result.stderr ?? "") }) ||
       i === maxRetries
     ) return result;
     await new Promise((r) => setTimeout(r, 5000));
@@ -293,7 +313,7 @@ function extractCost(stdout: string): number {
     if (!line.trim().startsWith("{")) continue;
     try {
       const o = JSON.parse(line) as { type?: string; total_cost_usd?: number };
-      if (o.type === "result" && typeof o.total_cost_usd === "number") cost = o.total_cost_usd;
+      if (typeof o.total_cost_usd === "number" && o.total_cost_usd > cost) cost = o.total_cost_usd;
     } catch { /* skip */ }
   }
   return cost;
@@ -340,6 +360,7 @@ export function formatSWEBenchSummary(results: SWEBenchRunResult[]): string {
   for (const [mode, runs] of byMode) {
     const passed = runs.filter((r) => r.testPassed).length;
     const total = runs.length;
+    if (total === 0) continue;
     const avgCost = runs.reduce((a, r) => a + r.costUsd, 0) / total;
     const avgWall = runs.reduce((a, r) => a + r.wallMs, 0) / total;
     lines.push(`## ${mode}`);

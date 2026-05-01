@@ -102,6 +102,8 @@ describe("store + claims", () => {
     expect(store.tryClaim(runId, "fresh", ["src/old.ts"], [])).toBe(true);
     store.setTaskSessionId(runId, "t1", "00000000-0000-4000-8000-000000000001");
     expect(store.getTaskSessionId(runId, "t1")).toBe("00000000-0000-4000-8000-000000000001");
+    store.setTaskStatus(runId, "t1", "running", "C:/tmp/worktree");
+    expect(store.listTaskWorktrees(runId)).toEqual([{ taskId: "t1", worktreePath: "C:/tmp/worktree" }]);
 
     store.appendEvent({
       run_id: runId,
@@ -149,6 +151,12 @@ describe("stream-json parser (verified vs claude 2.1.105)", () => {
     expect(r.costUsd).toBe(0.01);
   });
 
+  it("extracts cost from non-JSON Claude log text", async () => {
+    const { extractCostFromText } = await import("./runner.js");
+    expect(extractCostFromText("done\ntotal_cost_usd: 0.094\n")).toBeCloseTo(0.094, 4);
+    expect(extractCostFromText("\u001b[32m'total_cost_usd'=1.25\u001b[0m")).toBeCloseTo(1.25, 4);
+  });
+
   it("classifies Claude 429 overload as transient", async () => {
     const { isTransientClaudeError } = await import("./runner.js");
     expect(
@@ -158,6 +166,16 @@ describe("stream-json parser (verified vs claude 2.1.105)", () => {
       }),
     ).toBe(true);
     expect(isTransientClaudeError({ stdout: "", stderr: "syntax error" })).toBe(false);
+  });
+
+  it("classifies Windows libuv Claude crash as transient", async () => {
+    const { isTransientClaudeError } = await import("./runner.js");
+    expect(
+      isTransientClaudeError({
+        stdout: "",
+        stderr: "Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\\win\\async.c, line 76",
+      }),
+    ).toBe(true);
   });
 });
 
@@ -596,6 +614,7 @@ describe("planner prompt (platform-aware)", () => {
         security_scan_required: false,
       },
       routing: { plan_model: "strong", worker_model: "fast", gate_model: "strong" },
+      runtime: { worker_timeout_ms: 30 * 60_000, stale_claim_ms: 30 * 60_000 },
     };
     const p = buildPlannerPrompt(cfg, "win32");
     expect(p).toContain("Windows");
@@ -622,10 +641,162 @@ describe("planner prompt (platform-aware)", () => {
         security_scan_required: false,
       },
       routing: { plan_model: "strong", worker_model: "fast", gate_model: "strong" },
+      runtime: { worker_timeout_ms: 30 * 60_000, stale_claim_ms: 30 * 60_000 },
     };
     const p = buildPlannerPrompt(cfg, "linux");
     expect(p).toContain("POSIX tools");
     expect(p).not.toContain("PowerShell");
+  });
+});
+
+describe("dispatcher runtime config", () => {
+  it("passes configured worker timeout to Claude runner", async () => {
+    const { execa } = await import("execa");
+    const { Dispatcher } = await import("./dispatcher.js");
+    const { WorktreeService } = await import("./worktree.js");
+    const dir = mkdtempSync(join(tmpdir(), "swarm-dispatch-timeout-"));
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(join(dir, "src", "a.ts"), "export const a = 1;\n");
+    await execa("git", ["init"], { cwd: dir });
+    await execa("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+    await execa("git", ["config", "user.name", "Test"], { cwd: dir });
+    await execa("git", ["add", "src/a.ts"], { cwd: dir });
+    await execa("git", ["commit", "-m", "init"], { cwd: dir });
+
+    const store = new SwarmStore(dir);
+    const runId = "run-timeout";
+    store.insertRun(runId, "timeout test");
+    store.insertTask(runId, {
+      id: "t1",
+      summary: "edit a.ts",
+      depends_on: [],
+      owned_files: ["src/a.ts"],
+      owned_symbols: [],
+      acceptance_checks: [],
+      risk_level: "low",
+    });
+
+    const runner = {
+      run: async (opts: { cwd: string; timeoutMs?: number }) => {
+        expect(opts.timeoutMs).toBe(12345);
+        writeFileSync(join(opts.cwd, "src", "a.ts"), "export const a = 2;\n");
+        return { exitCode: 0, stdout: "", stderr: "", finalMessage: "done", costUsd: 0.01 };
+      },
+    };
+    const cfg = SwarmConfigSchema.parse({
+      version: "0.1",
+      goal: "timeout test",
+      runtime: { worker_timeout_ms: 12345, stale_claim_ms: 67890 },
+    });
+    const dispatcher = new Dispatcher({
+      runner: runner as never,
+      worktrees: new WorktreeService(dir),
+      store,
+      cfg,
+      rootDir: dir,
+    });
+
+    expect(await dispatcher.run(runId)).toEqual({ done: 1, failed: 0, blocked: 0, budgetExceeded: false });
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }, 20_000);
+});
+
+describe("planner JSON extraction", () => {
+  it("extracts fenced JSON", async () => {
+    const { extractPlannerJson } = await import("./planner.js");
+    expect(extractPlannerJson('```json\n{"goal":"g","tasks":[]}\n```')).toBe('{"goal":"g","tasks":[]}');
+  });
+
+  it("accepts raw JSON object output", async () => {
+    const { extractPlannerJson } = await import("./planner.js");
+    expect(extractPlannerJson('{"goal":"g","tasks":[]}')).toBe('{"goal":"g","tasks":[]}');
+  });
+
+  it("extracts JSON embedded in prose", async () => {
+    const { extractPlannerJson } = await import("./planner.js");
+    expect(extractPlannerJson('Here is the plan:\n{"goal":"g","tasks":[]}\nDone.')).toBe('{"goal":"g","tasks":[]}');
+  });
+
+  it("handles braces inside JSON strings", async () => {
+    const { extractPlannerJson } = await import("./planner.js");
+    expect(extractPlannerJson('Plan: {"goal":"write {x}","tasks":[]}')).toBe('{"goal":"write {x}","tasks":[]}');
+  });
+});
+
+describe("planner fallback", () => {
+  it("recovers JSON from stdout when final result text is not JSON", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "swarm-planner-stdout-json-"));
+    const { Planner } = await import("./planner.js");
+    const cfg = SwarmConfigSchema.parse({ version: "0.1", goal: "ship production" });
+    const json = JSON.stringify({
+      goal: "ship production",
+      tasks: [
+        {
+          id: "T1",
+          summary: "Do it",
+          depends_on: [],
+          owned_files: ["src/a.js"],
+          owned_symbols: [],
+          acceptance_checks: ["git diff --check"],
+          risk_level: "low",
+        },
+      ],
+    });
+    const runner = {
+      run: async () => ({
+        exitCode: 0,
+        stdout: `{"type":"assistant","message":{"content":[{"type":"text","text":${JSON.stringify(`\`\`\`json\n${json}\n\`\`\``)}}]}}\n`,
+        stderr: "",
+        finalMessage: "Done",
+        costUsd: 0.01,
+      }),
+    };
+    const result = await new Planner(runner as never, cfg).plan(dir);
+    expect(result.fallbackUsed).toBe(false);
+    expect(result.plan.tasks[0]?.id).toBe("T1");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("infers per-file fallback tasks from source filenames in the goal", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "swarm-planner-file-fallback-"));
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(join(dir, "src", "strings.js"), "export const s = 1;\n");
+    writeFileSync(join(dir, "src", "arrays.js"), "export const a = 1;\n");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { test: "node --test" } }));
+    const { buildFallbackPlan, inferOwnedFilesFromGoal } = await import("./planner.js");
+    const goal = "Improve strings.js and arrays.js. Add tests in tests/<moduleName>.test.js.";
+    expect(inferOwnedFilesFromGoal(dir, goal)).toEqual(["src/arrays.js", "src/strings.js"]);
+    const plan = buildFallbackPlan(dir, goal);
+    expect(plan.tasks).toHaveLength(2);
+    expect(plan.tasks[0]?.owned_files).toContain("tests/arrays.test.js");
+    expect(plan.tasks[1]?.owned_files).toContain("tests/strings.test.js");
+    expect(plan.tasks.some((task) => task.owned_files.includes("**/*"))).toBe(false);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("creates a conservative one-task plan when model output is not parseable", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "swarm-planner-fallback-"));
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { test: "node --test" } }));
+    const { Planner } = await import("./planner.js");
+    const cfg = SwarmConfigSchema.parse({ version: "0.1", goal: "ship production" });
+    const runner = {
+      run: async () => ({
+        exitCode: 0,
+        stdout: '{"type":"result","result":"not json","total_cost_usd":0.01}',
+        stderr: "",
+        finalMessage: "I cannot produce JSON",
+        costUsd: 0.01,
+      }),
+    };
+    const result = await new Planner(runner as never, cfg).plan(dir);
+    expect(result.fallbackUsed).toBe(true);
+    expect(result.attempts).toBe(2);
+    expect(result.costUsd).toBeCloseTo(0.02, 4);
+    expect(result.plan.tasks).toHaveLength(1);
+    expect(result.plan.tasks[0]?.owned_files).toEqual(["**/*"]);
+    expect(result.plan.tasks[0]?.acceptance_checks).toContain("npm test");
+    rmSync(dir, { recursive: true, force: true });
   });
 });
 
@@ -690,6 +861,15 @@ describe("eval cost extraction", () => {
   it("ignores malformed lines", () => {
     const stream = ["not json", '{"type":"result","total_cost_usd":0.99}'].join("\n");
     expect(evalInternals.extractCostFromStream(stream)).toBeCloseTo(0.99, 4);
+  });
+
+  it("extracts process cost from stderr when stdout has no cost", () => {
+    expect(evalInternals.extractCostFromProcess("no cost", "total_cost_usd: 0.42")).toBeCloseTo(0.42, 4);
+  });
+
+  it("extracts planner cost from CLI output before falling back to stream metadata", () => {
+    expect(evalInternals.extractPlanCost("Plan saved (planner cost: $0.33).", "")).toBeCloseTo(0.33, 4);
+    expect(evalInternals.extractPlanCost("", "total_cost_usd: 0.44")).toBeCloseTo(0.44, 4);
   });
 
   it("sums worker cost from event log", async () => {
@@ -984,7 +1164,7 @@ describe("Phase 3.3: doctor worktree parity", () => {
     const wt = checks.find((c) => c.name === "git-worktree");
     expect(["ok", "warn"]).toContain(wt?.level);
     rmSync(dir, { recursive: true, force: true });
-  });
+  }, 20_000);
 });
 
 describe("Phase 3.4: pre-merge hooks", () => {

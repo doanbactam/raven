@@ -20,6 +20,10 @@ routing:
   plan_model: strong
   worker_model: fast
   gate_model: strong
+
+runtime:
+  worker_timeout_ms: 1800000
+  stale_claim_ms: 1800000
 `;
 
 const SETTINGS_JSON = `{

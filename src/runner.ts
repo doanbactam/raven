@@ -105,6 +105,10 @@ export class ClaudeRunner {
       };
       if (parsed.finalMessage !== undefined) out.finalMessage = parsed.finalMessage;
       if (parsed.costUsd !== undefined) out.costUsd = parsed.costUsd;
+      if (out.costUsd === undefined) {
+        const stderrCost = extractCostFromText(stderr);
+        if (stderrCost !== undefined) out.costUsd = stderrCost;
+      }
       if (parsed.sessionId !== undefined) out.sessionId = parsed.sessionId;
       if (parsed.hookEvents.length > 0) out.hookEvents = parsed.hookEvents;
       // Only check stderr (not stdout which contains Claude CLI's own internal 429 retry logs).
@@ -143,15 +147,19 @@ interface ParsedStream {
 }
 
 /**
- * Parse Claude Code stream-json output (verified against Claude Code 2.1.105):
- * - `{type:"system", subtype:"init", ...}` first line
+ * Parse Claude Code stream-json output (verified against Claude Code 2.1.92):
+ * - `{type:"system", subtype:"init"|"hook_started"|"hook_response", ...}`
  * - one or more `{type:"assistant", message:{content:[{type:"text"|"thinking", ...}]}}`
  * - final `{type:"result", subtype:"success", result, total_cost_usd, duration_ms, ...}`
+ *
+ * ANSI escape sequences are stripped before parsing to handle terminal color codes
+ * that Claude CLI may inject into stream-json output.
  */
 export function parseStreamJson(streamJson: string): ParsedStream {
   const out: ParsedStream = { hookEvents: [] };
   let lastAssistantText: string | undefined;
-  for (const line of streamJson.split(/\r?\n/)) {
+  const cleaned = stripAnsi(streamJson);
+  for (const line of cleaned.split(/\r?\n/)) {
     if (!line.trim()) continue;
     let ev: unknown;
     try { ev = JSON.parse(line); } catch { continue; }
@@ -178,7 +186,30 @@ export function parseStreamJson(streamJson: string): ParsedStream {
   if (out.finalMessage === undefined && lastAssistantText !== undefined) {
     out.finalMessage = lastAssistantText;
   }
+  // Fallback: regex scan for cost if not found via structured parsing
+  if (out.costUsd === undefined) {
+    const cost = extractCostFromText(cleaned);
+    if (cost !== undefined) out.costUsd = cost;
+  }
   return out;
+}
+
+export function extractCostFromText(text: string): number | undefined {
+  const cleaned = stripAnsi(text);
+  let cost: number | undefined;
+  const re = /["']?total_cost_usd["']?\s*[:=]\s*([\d.eE+-]+)/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(cleaned)) !== null) {
+    const value = Number.parseFloat(match[1]!);
+    if (Number.isFinite(value) && (cost === undefined || value > cost)) {
+      cost = value;
+    }
+  }
+  return cost;
+}
+
+function stripAnsi(text: string): string {
+  return text.replace(/\x1b\[[0-9;]*m/g, "");
 }
 
 /** Map a raw stream JSON object with type=hook|lifecycle into a HookEvent. */
@@ -204,7 +235,7 @@ function parseHookEvent(raw: Record<string, unknown>): HookEvent {
 
 export function isTransientClaudeError(result: Pick<RunResult, "stdout" | "stderr" | "finalMessage">): boolean {
   const text = `${result.stderr}\n${result.finalMessage ?? ""}\n${result.stdout}`;
-  return /429|overload|temporarily overloaded|rate limit/i.test(text);
+  return /429|overload|temporarily overloaded|rate limit|UV_HANDLE_CLOSING|Assertion failed/i.test(text);
 }
 
 function sleep(ms: number): Promise<void> {

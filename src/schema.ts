@@ -43,6 +43,12 @@ export const SwarmConfigSchema = z.object({
       gate_model: z.string().default("strong"),
     })
     .default({}),
+  runtime: z
+    .object({
+      worker_timeout_ms: z.number().int().positive().default(30 * 60_000),
+      stale_claim_ms: z.number().int().positive().default(30 * 60_000),
+    })
+    .default({}),
   /** Shell command(s) run before each task branch is merged. Exit non-zero to reject. */
   pre_merge_hook: z.union([z.string(), z.array(z.string())]).optional(),
 });
@@ -51,6 +57,8 @@ export type SwarmConfig = z.infer<typeof SwarmConfigSchema>;
 /** Event types ghi vào event store (event-sourced). */
 export const EventTypeSchema = z.enum([
   "PlanCreated",
+  "PlanFailed",
+  "PlanFallbackUsed",
   "TaskClaimed",
   "TaskReleased",
   "WorktreeOpened",

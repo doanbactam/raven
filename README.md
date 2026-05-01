@@ -62,9 +62,11 @@ swarm replay <RUN_ID>    # timeline of all events + cost
 | `swarm run <id>` | Execute pending tasks with parallel workers |
 | `swarm resume <id>` | Resume an interrupted run |
 | `swarm status <id>` | Show task statuses for a run |
+| `swarm status <id> --json` | Show task statuses for automation |
 | `swarm replay <id>` | Show event timeline with costs |
 | `swarm merge <id>` | Merge done branches in topological order |
 | `swarm clean <id>` | Remove worktrees for a run |
+| `swarm gc --older-than-hours 24` | Garbage-collect old swarm worktrees |
 | `swarm doctor` | Pre-flight environment checks |
 | `swarm tui` | Open the interactive terminal control plane |
 | `swarm ui` | Open the local web control plane |
@@ -107,16 +109,21 @@ goal: |
   Describe your goal here. The architect agent will decompose it.
 parallelism: 4
 
-policy:
-  max_retries: 2
-  require_gate_pass: true
-  scope_enforcement: strict
+policies:
+  same_file: block
+  same_symbol: ask
+  out_of_scope_edit: fail
+  tests_required: true
   security_scan_required: false
 
 routing:
   plan_model: strong      # model for the architect/planner
   worker_model: fast      # model for low-risk workers
   gate_model: strong      # model for quality gate checks
+
+runtime:
+  worker_timeout_ms: 1800000
+  stale_claim_ms: 1800000
 
 # Optional: shell command(s) run before each task branch merges.
 # Exit non-zero to reject the merge.
@@ -159,6 +166,7 @@ The event store captures:
 | Category | Events |
 |----------|--------|
 | **Core lifecycle** | PlanCreated, TaskClaimed, TaskReleased, AgentStarted, AgentStopped |
+| **Planning resilience** | PlanFailed, PlanFallbackUsed |
 | **Workspace** | WorktreeOpened, WorktreeClosed |
 | **Outcomes** | PatchProposed, TaskValidated, TaskFailed, GateFailed, GatePassed |
 | **Escalation** | ArbitrationRequested, RunCompleted |
@@ -183,6 +191,21 @@ swarm eval eval-suites/scope-tempting.yaml --swarm-cli "node dist/cli.js"
 # Generate pilot report
 swarm pilot eval-suites/regression.yaml --out PILOT_REPORT.md
 ```
+
+Eval CSV output includes `cost_measured` and `success` columns so missing Claude
+cost metadata is visible instead of being silently treated as a real `$0.0000`.
+
+## Production Defaults
+
+- Planner output is retried up to 2 times with schema feedback.
+- Set `SWARM_PLANNER_MAX_ATTEMPTS=N` to tune planner retries. Eval defaults to `1` to avoid wasting runs when a backend does not follow JSON format.
+- If structured planning still fails, swarm-cp infers per-file fallback tasks from files/modules named in the goal and records `PlanFallbackUsed`.
+- If no target files can be inferred, swarm-cp falls back to one conservative high-risk task.
+- Set `SWARM_PLANNER_STRICT=1` to disable fallback and fail fast when planner JSON is invalid.
+- Worker and stale-claim timeouts live under `runtime` in `swarm.yaml`.
+- `status`, `history`, and `gc` support JSON output for scripts and CI wrappers.
+- Cost extraction reads both stdout and stderr and supports JSON stream output plus log-style `total_cost_usd: 0.123`.
+- Replay surfaces fallback planning in the event timeline.
 
 ## Migration Guide
 
@@ -219,7 +242,7 @@ npm install
 npm run build         # TypeScript → dist/
 npm run tui           # Ink terminal control plane
 npm run ui            # local web control plane
-npm test              # vitest (56+ tests)
+npm test              # vitest (79+ tests)
 npm run typecheck     # tsc --noEmit
 ```
 

@@ -61,8 +61,18 @@ export function recoverRunningTasksForResume(store: SwarmStore, runId: string): 
   const claimsByTask = new Set(store.listClaims(runId).map((claim) => claim.task_id));
   let recovered = 0;
   for (const task of store.listTasks(runId)) {
-    if (task.status !== "running") continue;
+    if (task.status !== "running") {
+      // Also recover "pending" tasks that have orphaned claims from a crash
+      // between tryClaim and setTaskStatus (BUG 9 in dispatcher).
+      if (task.status === "pending" && claimsByTask.has(task.id)) {
+        store.releaseClaims(runId, task.id);
+        recovered++;
+      }
+      continue;
+    }
     if (claimsByTask.has(task.id)) continue;
+    // Running task with no claims — the worker died before releasing.
+    // Reset to pending so the dispatcher can pick it up in the next wave.
     store.setTaskStatus(runId, task.id, "pending");
     recovered++;
   }

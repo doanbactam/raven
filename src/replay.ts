@@ -74,10 +74,13 @@ function eventDetail(ev: SwarmEvent): string {
     case "PlanCreated":
       return [
         typeof ev.payload.taskCount === "number" ? `tasks=${ev.payload.taskCount}` : "",
+        ev.payload.fallbackUsed === true ? "fallback" : "",
         typeof ev.payload.goal === "string" ? truncate(ev.payload.goal, 80) : "",
       ]
         .filter(Boolean)
         .join(" ");
+    case "PlanFallbackUsed":
+      return typeof ev.payload.reason === "string" ? truncate(ev.payload.reason, 120) : "fallback";
     case "RunCompleted":
       return [
         ...(["done", "failed", "blocked"] as const)

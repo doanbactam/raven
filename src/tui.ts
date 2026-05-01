@@ -213,6 +213,7 @@ function SwarmTui({ rootDir }: { rootDir: string }): React.ReactElement {
   const planRun = useCallback(async (goal?: string) => {
     setState((prev) => ({ ...prev, busy: true, message: "Planning with Claude..." }));
     let runId = "";
+    let usedFallback = false;
     try {
       const expandedGoal = goal !== undefined ? await expandFileReferences(rootDir, goal) : undefined;
       const cfg = expandedGoal !== undefined ? await saveGoal(expandedGoal) : await loadConfig(rootDir);
@@ -221,13 +222,22 @@ function SwarmTui({ rootDir }: { rootDir: string }): React.ReactElement {
       try {
         store.insertRun(runId, cfg.goal);
         const planner = new Planner(new ClaudeRunner(), cfg);
-        const { plan, costUsd } = await planner.plan(rootDir);
+        const { plan, costUsd, attempts, fallbackUsed, fallbackReason } = await planner.plan(rootDir);
+        usedFallback = fallbackUsed;
         store.appendEvent({
           run_id: runId,
           type: "PlanCreated",
           ts: new Date().toISOString(),
-          payload: { goal: cfg.goal, taskCount: plan.tasks.length, costUsd },
+          payload: { goal: cfg.goal, taskCount: plan.tasks.length, costUsd, attempts, fallbackUsed },
         });
+        if (fallbackUsed) {
+          store.appendEvent({
+            run_id: runId,
+            type: "PlanFallbackUsed",
+            ts: new Date().toISOString(),
+            payload: { reason: fallbackReason ?? "planner output was not usable", attempts },
+          });
+        }
         for (const task of plan.tasks) store.insertTask(runId, task);
         store.setRunStatus(runId, "ready");
       } catch (err) {
@@ -246,7 +256,7 @@ function SwarmTui({ rootDir }: { rootDir: string }): React.ReactElement {
         promptHistory: goal ? appendPromptHistory(prev.promptHistory, goal) : prev.promptHistory,
         historyIndex: null,
         busy: false,
-        message: `Plan saved: ${runId.slice(0, 8)}`,
+        message: usedFallback ? `Fallback plan saved: ${runId.slice(0, 8)}` : `Plan saved: ${runId.slice(0, 8)}`,
       }));
     } catch (err) {
       setState((prev) => ({ ...prev, busy: false, message: errorMessage(err) }));

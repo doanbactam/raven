@@ -22,6 +22,19 @@ export class WorktreeService {
     const wtDir = join(this.rootDir, ".swarm", "worktrees", runId, taskId);
     await mkdir(join(this.rootDir, ".swarm", "worktrees", runId), { recursive: true });
     const branch = `swarm/${runId}/${taskId}`;
+    // On resume, the branch/worktree may already exist from a previous attempt.
+    // Clean up the old worktree and branch before creating a new one.
+    try {
+      await this.git.raw(["worktree", "remove", "--force", wtDir]);
+    } catch {
+      // Fallback: manual removal if git couldn't (e.g. locked dir on Windows).
+      await rm(wtDir, { recursive: true, force: true });
+    }
+    try {
+      await this.git.raw(["branch", "-D", branch]);
+    } catch {
+      // branch didn't exist, that's fine
+    }
     // -b tạo branch mới từ HEAD
     await this.git.raw(["worktree", "add", "-b", branch, wtDir]);
     return wtDir;

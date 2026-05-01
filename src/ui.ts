@@ -161,16 +161,24 @@ async function planRun(rootDir: string, goal?: string): Promise<unknown> {
   try {
     store.insertRun(runId, nextCfg.goal);
     const planner = new Planner(new ClaudeRunner(), nextCfg);
-    const { plan, costUsd } = await planner.plan(rootDir);
+    const { plan, costUsd, attempts, fallbackUsed, fallbackReason } = await planner.plan(rootDir);
     store.appendEvent({
       run_id: runId,
       type: "PlanCreated",
       ts: new Date().toISOString(),
-      payload: { goal: nextCfg.goal, taskCount: plan.tasks.length, costUsd },
+      payload: { goal: nextCfg.goal, taskCount: plan.tasks.length, costUsd, attempts, fallbackUsed },
     });
+    if (fallbackUsed) {
+      store.appendEvent({
+        run_id: runId,
+        type: "PlanFallbackUsed",
+        ts: new Date().toISOString(),
+        payload: { reason: fallbackReason ?? "planner output was not usable", attempts },
+      });
+    }
     for (const task of plan.tasks) store.insertTask(runId, task);
     store.setRunStatus(runId, "ready");
-    return { runId, taskCount: plan.tasks.length, costUsd };
+    return { runId, taskCount: plan.tasks.length, costUsd, fallbackUsed };
   } catch (err) {
     store.setRunStatus(runId, "failed");
     throw err;

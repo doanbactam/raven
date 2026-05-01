@@ -128,7 +128,8 @@ export class Dispatcher {
 
   private releaseStaleClaims(runId: string): void {
     const { store } = this.deps;
-    const cutoff = new Date(Date.now() - DEFAULT_STALE_CLAIM_MS).toISOString();
+    const timeoutMs = this.deps.cfg.runtime.stale_claim_ms ?? DEFAULT_STALE_CLAIM_MS;
+    const cutoff = new Date(Date.now() - timeoutMs).toISOString();
     const stale = store.releaseStaleClaims(runId, cutoff);
     const staleTaskIds = new Set(stale.map((claim) => claim.task_id));
     for (const taskId of staleTaskIds) {
@@ -145,7 +146,7 @@ export class Dispatcher {
           path: claim.path,
           kind: claim.kind,
           claimedAt: claim.claimed_at,
-          timeoutMs: DEFAULT_STALE_CLAIM_MS,
+          timeoutMs,
         },
       });
     }
@@ -185,6 +186,7 @@ export class Dispatcher {
         dangerouslySkipPermissions: true,
         sessionId,
         includeHookEvents: true,
+        timeoutMs: cfg.runtime.worker_timeout_ms,
       };
       if (model) runOptions.model = model;
       const res = await runner.run(runOptions);
@@ -207,7 +209,13 @@ export class Dispatcher {
           task_id: t.id,
           type: "TaskFailed",
           ts: new Date().toISOString(),
-          payload: { exitCode: res.exitCode, stderr: res.stderr.slice(0, 4000) },
+          payload: {
+            exitCode: res.exitCode,
+            stderr: (res.stderr ?? "").slice(0, 4000),
+            stdout: (res.stdout ?? "").slice(0, 4000),
+            finalMessage: res.finalMessage?.slice(0, 1000) ?? "",
+            costUsd: res.costUsd ?? 0,
+          },
         });
         return false;
       }
@@ -271,7 +279,7 @@ export class Dispatcher {
       }
 
       // Auto-commit worker changes so `swarm merge` has something to merge.
-      await worktrees.commitAll(wt, `swarm: ${t.id} — ${t.summary}`);
+      const committed = await worktrees.commitAll(wt, `swarm: ${t.id} — ${t.summary}`);
 
       store.setTaskStatus(runId, t.id, "done");
       store.appendEvent({
@@ -283,11 +291,13 @@ export class Dispatcher {
           finalMessage: res.finalMessage?.slice(0, 2000) ?? "",
           costUsd: res.costUsd ?? 0,
           sessionId: res.sessionId ?? sessionId,
+          committed,
         },
       });
       return true;
     } catch (err) {
-      if (typeof lastCostUsd === "number") this.cumulativeCostUsd += lastCostUsd;
+      // Note: cost was already accumulated on line 192 after runner.run() succeeded.
+      // Do NOT re-add here — that would double-count.
       store.setTaskStatus(runId, t.id, "failed");
       store.appendEvent({
         run_id: runId,
@@ -309,22 +319,28 @@ export class Dispatcher {
   }
 }
 
-function buildWorkerPrompt(t: Task, cfg: SwarmConfig): string {
+export function buildWorkerPrompt(t: Task, cfg: SwarmConfig): string {
+  const taskPayload = {
+    id: t.id,
+    summary: t.summary,
+    owned_files: t.owned_files,
+    owned_symbols: t.owned_symbols,
+    acceptance_checks: t.acceptance_checks,
+  };
   return [
-    `Use the @${cfg.worker} subagent.`,
+    `Act as the ${cfg.worker} agent and complete the claimed task now.`,
+    `Do not ask clarifying questions. Do not only describe a plan. Make the required file edits in this worktree.`,
     ``,
-    `Task ID: ${t.id}`,
-    `Summary: ${t.summary}`,
+    `Task payload:`,
+    JSON.stringify(taskPayload, null, 2),
     ``,
-    `Ownership boundary (DO NOT edit files outside this list):`,
-    `Files: ${JSON.stringify(t.owned_files)}`,
-    `Symbols: ${JSON.stringify(t.owned_symbols)}`,
+    `Ownership boundary: edit only the files and symbols listed in the task payload.`,
+    `If a required edit is outside that boundary, STOP and output exactly: NEEDS_ARBITRATION`,
     ``,
-    `Acceptance checks (must all pass):`,
+    `After editing, run these acceptance checks and fix the task until they pass:`,
     ...t.acceptance_checks.map((c) => `- ${c}`),
     ``,
-    `If you must touch anything outside ownership, STOP and output exactly: NEEDS_ARBITRATION`,
-    `When done, output a short JSON summary with files_touched and decision_log.`,
+    `When done, output only a short JSON summary with files_touched and decision_log.`,
   ].join("\n");
 }
 

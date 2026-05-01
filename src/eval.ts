@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { parse as parseYaml } from "yaml";
 import { EvalSuiteSchema, type EvalEntry, type EvalSuite } from "./schema.js";
-import { isTransientClaudeError } from "./runner.js";
+import { extractCostFromText, isTransientClaudeError } from "./runner.js";
 
 export interface EvalRunResult {
   entryId: string;
@@ -49,7 +49,7 @@ export async function runSuite(
   const csvPath = join(outDir, `results-${stamp}.csv`);
 
   const results: EvalRunResult[] = [];
-  const csvLines = ["entry,mode,run,wall_ms,cost_usd,verify_exit,workdir"];
+  const csvLines = ["entry,mode,run,wall_ms,cost_usd,cost_measured,verify_exit,success,workdir"];
   const swarmCli = parseCommandSpec(opts.swarmCli, process.cwd());
 
   for (const entry of suite.entries) {
@@ -68,7 +68,17 @@ export async function runSuite(
         results.push(r);
         await appendJsonl(jsonlPath, r);
         csvLines.push(
-          [r.entryId, r.mode, r.runIndex, r.wallMs, r.costUsd.toFixed(4), r.verifyExit, r.workdir]
+          [
+            r.entryId,
+            r.mode,
+            r.runIndex,
+            r.wallMs,
+            r.costUsd.toFixed(4),
+            r.extras.costMeasured === true ? "yes" : "no",
+            r.verifyExit,
+            modeSucceeded(r) ? "yes" : "no",
+            r.workdir,
+          ]
             .map(csvEscape)
             .join(","),
         );
@@ -107,7 +117,7 @@ async function runBaseline(
   );
   const wallMs = Date.now() - start;
 
-  const costUsd = extractCostFromStream(String(r.stdout ?? ""));
+  const costUsd = extractCostFromProcess(String(r.stdout ?? ""), String(r.stderr ?? ""));
   const verifyExit = await runVerify(entry, workdir);
 
   return {
@@ -123,6 +133,7 @@ async function runBaseline(
       stdoutTail: tail(String(r.stdout ?? ""), 2000),
       stderrTail: tail(String(r.stderr ?? ""), 2000),
       timedOut: Boolean(r.timedOut),
+      costMeasured: costUsd > 0,
     },
   };
 }
@@ -156,6 +167,7 @@ async function runSwarm(
       verifyExit: -1,
       workdir,
       extras: {
+        costMeasured: false,
         initExitCode: initRes.exitCode ?? -1,
         initStdoutTail: tail(String(initRes.stdout ?? ""), 2000),
         initStderrTail: tail(String(initRes.stderr ?? ""), 2000),
@@ -178,9 +190,10 @@ async function runSwarm(
     reject: false,
     timeout: evalTimeoutMs(),
     stdin: "ignore",
+    env: { ...process.env, SWARM_PLANNER_MAX_ATTEMPTS: process.env.SWARM_PLANNER_MAX_ATTEMPTS ?? "1" },
   });
   const runId = /Run ID:\s+([\w-]+)/.exec(String(planRes.stdout))?.[1] ?? "";
-  const planCost = parseFloat(/planner cost:\s*\$([\d.]+)/.exec(String(planRes.stdout))?.[1] ?? "0");
+  const planCost = extractPlanCost(String(planRes.stdout ?? ""), String(planRes.stderr ?? ""));
 
   // Run
   let runOk = false;
@@ -222,6 +235,7 @@ async function runSwarm(
       runErr: runErr.slice(0, 500),
       planCost,
       workerCost,
+      costMeasured: planCost > 0 || workerCost > 0,
       planExitCode: planRes.exitCode ?? -1,
       planStdoutTail: tail(String(planRes.stdout ?? ""), 2000),
       planStderrTail: tail(String(planRes.stderr ?? ""), 2000),
@@ -241,24 +255,46 @@ async function runVerify(entry: EvalEntry, workdir: string): Promise<number> {
   return r.exitCode ?? -1;
 }
 
+function stripAnsi(text: string): string {
+  // Remove ANSI escape sequences (e.g. [7m, [0m, [32m, etc.) that Claude CLI
+  // may inject into stream-json output when a terminal is detected.
+  return text.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
 function extractCostFromStream(stdout: string): number {
   // Walk lines; take the highest total_cost_usd seen from any event type.
   // "result" events carry the final total, but partial/timed-out streams may
   // only have cost on intermediate events. Use the max to be robust.
-  let cost = 0;
-  for (const line of stdout.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("{")) continue;
-    try {
-      const obj = JSON.parse(trimmed) as { type?: string; total_cost_usd?: number };
-      if (typeof obj.total_cost_usd === "number" && obj.total_cost_usd > cost) {
-        cost = obj.total_cost_usd;
-      }
-    } catch {
-      // skip malformed lines
+  const cleaned = stripAnsi(stdout);
+  let cost = extractCostFromText(cleaned) ?? 0;
+  // Approach 2 (fallback): line-by-line JSON parse for well-formed lines.
+  if (cost === 0) {
+    for (const line of cleaned.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("{")) continue;
+      try {
+        const obj = JSON.parse(trimmed) as { total_cost_usd?: number };
+        if (typeof obj.total_cost_usd === "number" && obj.total_cost_usd > cost) {
+          cost = obj.total_cost_usd;
+        }
+      } catch { /* skip */ }
     }
   }
   return cost;
+}
+
+function extractCostFromProcess(stdout: string, stderr: string): number {
+  return Math.max(extractCostFromStream(stdout), extractCostFromStream(stderr));
+}
+
+function extractPlanCost(stdout: string, stderr: string): number {
+  const text = `${stdout}\n${stderr}`;
+  const printed = /planner cost:\s*\$([\d.eE+-]+)/i.exec(text);
+  if (printed) {
+    const value = Number.parseFloat(printed[1]!);
+    if (Number.isFinite(value)) return value;
+  }
+  return extractCostFromProcess(stdout, stderr);
 }
 
 async function sumWorkerCost(eventsPath: string): Promise<number> {
@@ -271,7 +307,7 @@ async function sumWorkerCost(eventsPath: string): Promise<number> {
     try {
       const e = JSON.parse(trimmed) as { type?: string; payload?: { costUsd?: number } };
       if (
-        (e.type === "TaskValidated" || e.type === "TaskFailed") &&
+        (e.type === "TaskValidated" || e.type === "TaskFailed" || e.type === "ArbitrationRequested") &&
         typeof e.payload?.costUsd === "number"
       ) {
         total += e.payload.costUsd;
@@ -370,6 +406,8 @@ function tail(s: string, max: number): string {
 /** Test helper. */
 export const _internals = {
   extractCostFromStream,
+  extractCostFromProcess,
+  extractPlanCost,
   sumWorkerCost,
   csvEscape,
   parseCommandSpec,
