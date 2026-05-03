@@ -30,7 +30,7 @@ export function Prompt({ busy, onSubmit, config }: PromptProps) {
   );
 
   return (
-    <div className="border-t border-border bg-surface-1/40 px-5 py-2.5">
+    <div className="border-t border-border bg-surface-1/40 px-3 sm:px-5 py-2.5">
       <div className="max-w-3xl mx-auto">
         <div className="relative">
           <textarea
@@ -38,7 +38,7 @@ export function Prompt({ busy, onSubmit, config }: PromptProps) {
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={busy ? "Working..." : "What should swarm build?"}
+            placeholder={busy ? "Working..." : "Create a plan from a goal"}
             disabled={busy}
             rows={1}
             className="w-full bg-surface-2/70 border border-border rounded-xl px-4 py-2.5 pr-11 text-[13px] text-text-primary placeholder:text-text-muted/70 focus:outline-none focus:border-accent/50 focus:bg-surface-2 transition-all resize-none disabled:opacity-40 font-sans"
@@ -65,6 +65,9 @@ export function Prompt({ busy, onSubmit, config }: PromptProps) {
         <div className="flex items-center gap-3 mt-1.5 px-1 text-[10px] text-text-muted/60">
           <Kbd k="Enter" label="plan" />
           <Kbd k="Shift+Enter" label="newline" />
+          <span className="hidden sm:inline text-text-muted/45">
+            Plans first, workers only after review.
+          </span>
           {config && (
             <span className="ml-auto tabular-nums">
               {config.parallelism}x · ${config.budget_usd}

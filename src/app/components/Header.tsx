@@ -4,7 +4,7 @@ import {
   RefreshCw,
   Stethoscope,
   Settings,
-  MessageSquare,
+  LayoutDashboard,
   Loader2,
 } from "lucide-react";
 import type { DoctorCheck } from "../types";
@@ -38,7 +38,7 @@ export function Header({
 
   return (
     <div className="titlebar-drag flex items-center gap-2.5 px-4 h-11 border-b border-border glass shrink-0 relative z-10">
-      <div className="w-[68px] shrink-0" />
+      <div className="hidden sm:block w-[68px] shrink-0" />
 
       <div className="flex items-center gap-2 titlebar-no-drag">
         <div className={`w-1.5 h-1.5 rounded-full ${healthDot} ${busy ? "animate-pulse-dot" : ""}`} />
@@ -51,7 +51,7 @@ export function Header({
 
       <button
         onClick={onSelectProject}
-        className="titlebar-no-drag flex items-center gap-1.5 text-[11px] text-text-muted hover:text-text-secondary transition-colors truncate max-w-[280px]"
+        className="titlebar-no-drag hidden md:flex items-center gap-1.5 text-[11px] text-text-muted hover:text-text-secondary transition-colors truncate max-w-[280px]"
       >
         <FolderOpen size={11} className="shrink-0" />
         <span className="truncate font-mono">{rootDir || "select project"}</span>
@@ -63,8 +63,8 @@ export function Header({
         <NavTab
           active={view === "chat"}
           onClick={() => onViewChange("chat")}
-          icon={<MessageSquare size={12} />}
-          label="Chat"
+          icon={<LayoutDashboard size={12} />}
+          label="Runs"
         />
         <NavTab
           active={view === "doctor"}
